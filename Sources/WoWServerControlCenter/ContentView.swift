@@ -153,6 +153,10 @@ struct ContentView: View {
             Picker("Expansion",selection:$model.selectedExpansion) { ForEach(ExpansionID.allCases) { Text($0.title).tag($0) } }.frame(width:310)
             maturityBadge(model.selectedExpansion.maturity)
             Spacer()
+            Button { model.setupSelectedProfile() } label:{ Label("Repair Realm",systemImage:"wrench.and.screwdriver.fill") }
+                .buttonStyle(.bordered)
+                .disabled(model.operationActive || !model.mysqlRuntimeInstalled)
+                .help("Initialize or repair the selected realm database. TBC also validates and repairs the full world item catalog.")
             Button { model.startAll() } label:{ Label("Start",systemImage:"play.fill") }.buttonStyle(.borderedProminent)
             Button { model.play() } label:{ Label("Start & Play",systemImage:"gamecontroller.fill") }.buttonStyle(.borderedProminent)
             Button("Stop") { model.stopAll() }
@@ -352,6 +356,12 @@ struct ContentView: View {
                             Button(model.selectedExpansion == .tbc ? "Rebuild / Apply Patches" : "Repair / Rebuild Core", action: action)
                                 .buttonStyle(.borderedProminent)
                                 .disabled(model.operationActive)
+                        }
+                        if number == 6 {
+                            Button("Repair Realm", action: action)
+                                .buttonStyle(.borderedProminent)
+                                .disabled(model.operationActive || !model.mysqlRuntimeInstalled)
+                                .help("Run realm database validation and repair again even when the Realm DB status is already green.")
                         }
                     }
                 } else {
@@ -1285,12 +1295,12 @@ private struct WoWItemTooltipModifier: ViewModifier {
                     WoWTooltipPanel.shared.hide()
                 }
             }
-            .onChange(of:text) { _ in
+            .onChange(of:text) { _, _ in
                 if hovering {
                     WoWTooltipPanel.shared.show(text:text,quality:quality,loading:loading)
                 }
             }
-            .onChange(of:loading) { _ in
+            .onChange(of:loading) { _, _ in
                 if hovering {
                     WoWTooltipPanel.shared.show(text:text,quality:quality,loading:loading)
                 }
@@ -1316,7 +1326,7 @@ private final class WoWTooltipPanel {
             host.translatesAutoresizingMaskIntoConstraints = false
 
             let p = NSPanel(
-                contentRect:NSRect(x:0,y:0,width:390,height:220),
+                contentRect:NSRect(x:0,y:0,width:470,height:260),
                 styleMask:[.borderless,.nonactivatingPanel],
                 backing:.buffered,
                 defer:false
@@ -1357,10 +1367,12 @@ private final class WoWTooltipPanel {
     private func resizeToContent() {
         guard let host=hostingView, let panel else { return }
 
-        // Width stays WoW-like and readable; height adapts to long item/set text.
-        let width: CGFloat = 390
+        let width: CGFloat = 470
+        host.frame = NSRect(x:0,y:0,width:width,height:2000)
+        host.layoutSubtreeIfNeeded()
         let fitting = host.fittingSize
-        let height = min(max(fitting.height, 80), 620)
+        let screenLimit = max(260, (NSScreen.main?.visibleFrame.height ?? 900) - 48)
+        let height = min(max(fitting.height, 110), screenLimit)
 
         panel.setContentSize(NSSize(width:width,height:height))
         host.frame = NSRect(x:0,y:0,width:width,height:height)
@@ -1418,18 +1430,17 @@ private struct WoWTooltipPanelView: View {
                 }
             }
 
-            ScrollView {
-                Text(text)
-                    .font(.system(size:12,weight:.medium))
-                    .foregroundStyle(.white)
-                    .textSelection(.enabled)
-                    .frame(maxWidth:.infinity,alignment:.leading)
-                    .fixedSize(horizontal:false,vertical:true)
-            }
-            .scrollIndicators(.automatic)
+            Text(text)
+                .font(.system(size:12,weight:.medium,design:.default))
+                .foregroundStyle(.white)
+                .textSelection(.enabled)
+                .lineLimit(nil)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth:.infinity,alignment:.leading)
+                .fixedSize(horizontal:false,vertical:true)
         }
         .padding(13)
-        .frame(width:390,alignment:.leading)
+        .frame(width:470,alignment:.leading)
         .background(
             RoundedRectangle(cornerRadius:8)
                 .fill(Color.black.opacity(0.96))

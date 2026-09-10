@@ -1,3 +1,11 @@
+# v1.5.78 — Full Tooltips + Visible Realm Repair
+
+- Permanent Repair Realm button in the top bar.
+- Repair Realm remains available after Setup step 6 is Done.
+- Collection tooltips now read detailed fields directly from the selected realm item_template database.
+- Tooltip panel widened and auto-sized so long item details are not clipped.
+- Preserves 1.5.77 TBC full-world-catalog validation and repair.
+
 # v1.5.77 — TBC Full World Catalog Repair
 
 - Fixes TBC Collections showing only a few items when a partial `mangos.item_template` had been incorrectly accepted as a ready realm.
