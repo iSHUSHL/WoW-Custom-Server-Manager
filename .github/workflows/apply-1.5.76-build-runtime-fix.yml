@@ -1,0 +1,55 @@
+name: Apply 1.5.76 Missing Runtime Build Fix
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/apply-1.5.76-build-runtime-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fix Build.command runtime handling
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('Build.command')
+          s=p.read_text()
+          old='cp -R "$ROOT/runtime/." "$APP/Contents/Resources/WoWCC/runtime-template/"'
+          new='''if [[ -d "$ROOT/runtime" ]]; then\n  cp -R "$ROOT/runtime/." "$APP/Contents/Resources/WoWCC/runtime-template/"\nelse\n  echo "ℹ️ No source runtime template directory found; continuing with an empty runtime-template."\nfi'''
+          if old in s:
+              s=s.replace(old,new,1)
+          elif new not in s:
+              raise SystemExit('runtime copy marker not found')
+          s=s.replace('<key>CFBundleShortVersionString</key><string>1.5.75</string>', '<key>CFBundleShortVersionString</key><string>1.5.76</string>')
+          s=s.replace('<key>CFBundleVersion</key><string>1575</string>', '<key>CFBundleVersion</key><string>1576</string>')
+          p.write_text(s)
+
+          rel=Path('RELEASE-NOTES.md')
+          r=rel.read_text()
+          note='''# v1.5.76 — Clean ZIP / Missing Runtime Build Fix\n\n- Fixes `Build.command` failing after a successful Swift compile when the source package has no top-level `runtime/` directory.\n- The app bundle now creates `runtime-template` unconditionally and copies source runtime data only when that optional folder exists.\n- A missing source runtime template is informational, not a build failure.\n- Preserves the complete TBC catalog fixes from 1.5.75.\n\n'''
+          if not r.startswith('# v1.5.76'):
+              rel.write_text(note+r)
+          PY
+
+          bash -n Build.command
+          xcrun swift build -c release
+
+      - name: Commit fix
+        shell: bash
+        run: |
+          rm .github/workflows/apply-1.5.76-build-runtime-fix.yml
+          git config user.name "WoWCC Automation"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "Fix build when optional runtime template is absent"
+          git push
