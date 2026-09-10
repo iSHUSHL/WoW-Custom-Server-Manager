@@ -8,9 +8,10 @@ struct WoWServerControlCenterApp: App {
         WindowGroup("WoW Server Control Center") {
             ContentView()
                 .environmentObject(model)
-                .frame(minWidth: 960, minHeight: 600)
+                .wowccPremiumTheme()
+                .frame(minWidth: 1080, minHeight: 680)
         }
-        .defaultSize(width: 1220, height: 780)
+        .defaultSize(width: 1320, height: 860)
         .windowStyle(.hiddenTitleBar)
     }
 }
