@@ -2,7 +2,7 @@ from pathlib import Path
 
 cv=Path('Sources/WoWServerControlCenter/ContentView.swift')
 s=cv.read_text()
-s=s.replace('if line.hasPrefix("\"\"") && line.hasSuffix("\"\"") { return .yellow }','if line.first == "\\\"" && line.last == "\\\"" { return .yellow }')
+s=s.replace('        if line.hasPrefix(""") && line.hasSuffix(""") { return .yellow }','        if line.first == Character("\\\"") && line.last == Character("\\\"") { return .yellow }')
 cv.write_text(s)
 
 sm=Path('Sources/WoWServerControlCenter/ServerModel.swift')
