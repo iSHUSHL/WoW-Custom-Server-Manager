@@ -8,6 +8,7 @@ on:
 permissions:
   contents: write
 
+# retry after state patcher correction
 jobs:
   patch-build-package:
     runs-on: macos-15
