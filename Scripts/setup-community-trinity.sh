@@ -160,6 +160,12 @@ for spec in auth.account auth.realmlist characters.characters world.item_templat
   has_table "$db" "$table" || fail "Database bootstrap incomplete: missing $spec"
 done
 
+world_items="$("${M[@]}" --batch --skip-column-names world -e "SELECT COUNT(*) FROM item_template;" 2>/dev/null || echo 0)"
+log "Catalog health: items=$world_items"
+if (( ${world_items:-0} < 10000 )); then
+  fail "$LABEL world DB is incomplete: world.item_template has only $world_items rows. Remove the downloaded database cache in Storage & Cleanup, then run Repair Realm again so WoWCC downloads/imports a full database release."
+fi
+
 # Existing community DBs normally ship a realmlist row. Update all rows safely;
 # if none exists, core-specific setup will show a clear Health Check instead of inventing a schema.
 "${M[@]}" auth -e "UPDATE realmlist SET address='127.0.0.1', port=8085, gamebuild=$BUILD;" 2>/dev/null || \

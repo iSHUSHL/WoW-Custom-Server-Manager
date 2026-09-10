@@ -1,3 +1,12 @@
+# v1.5.83 — WotLK / Cata / MoP Catalog Recovery
+
+- Adds live item_template schema introspection for Collection Browser.
+- Rejects suspiciously empty world catalogs instead of silently showing zero items.
+- Adds catalog.log diagnostics automatically visible in the WoWCC Logs UI.
+- WotLK Setup/Repair validates acore_world.item_template content after dbimport.
+- Cataclysm/MoP Setup/Repair validates world.item_template content after community DB import.
+- Keeps the restored pre-premium 1.5.80 UI and tooltip auto-fit behavior.
+
 # v1.5.80 — Tooltip Auto-Fit
 
 - Removed the unusable tooltip ScrollView/scrollbar from the mouse-transparent floating panel.

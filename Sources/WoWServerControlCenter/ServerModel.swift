@@ -1985,14 +1985,6 @@ final class ServerModel: ObservableObject {
         let port = mysqlPort
         let whereClause = catalogWhereClause(kind: kind, search: q)
         let offset = page * pageSize
-        let countSQL = "SELECT COUNT(*) FROM item_template WHERE \(whereClause);"
-        let sql = """
-        SELECT entry,name,Quality,class,subclass,InventoryType,ItemLevel,itemset,AllowableClass
-        FROM item_template
-        WHERE \(whereClause)
-        ORDER BY ItemLevel DESC, Quality DESC, name, entry
-        LIMIT \(pageSize) OFFSET \(offset);
-        """
 
         catalogLoading = true
         catalogStatus = "Loading \(kind.rawValue) — page \(page + 1)…"
@@ -2000,6 +1992,47 @@ final class ServerModel: ObservableObject {
         DispatchQueue.global(qos: .userInitiated).async {
             do {
                 let client = DatabaseClient(executable: mysqlExecutable, port: port)
+                let columnRaw = try client.query(database: db, sql: "SHOW COLUMNS FROM item_template;")
+                let liveColumns = columnRaw.split(separator: "\n").compactMap { line -> String? in
+                    line.split(separator: "\t", omittingEmptySubsequences: false).first.map(String.init)
+                }
+                let columnMap = Dictionary(uniqueKeysWithValues: liveColumns.map { ($0.lowercased(), $0) })
+                func col(_ candidates: [String], fallback: String) -> String {
+                    for candidate in candidates {
+                        if let actual = columnMap[candidate.lowercased()] { return "`\(actual)`" }
+                    }
+                    return fallback
+                }
+
+                let entryCol = col(["entry"], fallback: "0")
+                let nameCol = col(["name","name1"], fallback: "''")
+                let qualityCol = col(["Quality","quality"], fallback: "1")
+                let classCol = col(["class"], fallback: "0")
+                let subclassCol = col(["subclass"], fallback: "0")
+                let inventoryCol = col(["InventoryType","inventorytype"], fallback: "0")
+                let levelCol = col(["ItemLevel","itemlevel"], fallback: "0")
+                let setCol = col(["itemset","ItemSet"], fallback: "0")
+                let allowableClassCol = col(["AllowableClass","allowableclass"], fallback: "-1")
+
+                guard entryCol != "0" else {
+                    throw NSError(domain: "WoWCC.Catalog", code: 2, userInfo: [NSLocalizedDescriptionKey: "item_template has no entry column in \(db)"])
+                }
+
+                let totalTableRaw = try client.query(database: db, sql: "SELECT COUNT(*) FROM item_template;")
+                let totalTableItems = Int(totalTableRaw.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+                guard totalTableItems >= 1000 else {
+                    throw NSError(domain: "WoWCC.Catalog", code: 3, userInfo: [NSLocalizedDescriptionKey: "\(db).item_template contains only \(totalTableItems) rows. Run Repair Realm to restore the full world database."])
+                }
+
+                let countSQL = "SELECT COUNT(*) FROM item_template WHERE \(whereClause);"
+                let sql = """
+                SELECT \(entryCol),\(nameCol),\(qualityCol),\(classCol),\(subclassCol),\(inventoryCol),\(levelCol),\(setCol),\(allowableClassCol)
+                FROM item_template
+                WHERE \(whereClause)
+                ORDER BY \(levelCol) DESC, \(qualityCol) DESC, \(nameCol), \(entryCol)
+                LIMIT \(pageSize) OFFSET \(offset);
+                """
+
                 let totalRaw = try client.query(database: db, sql: countSQL)
                 let total = Int(totalRaw.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
                 let raw = try client.query(database: db, sql: sql)
@@ -2052,13 +2085,30 @@ final class ServerModel: ObservableObject {
             } catch {
                 DispatchQueue.main.async {
                     self.catalogLoading = false
-                    self.serverCatalog = BuiltInCatalog.entries(for: self.selectedExpansion)
+                    self.serverCatalog = []
                     self.catalogHasMore = false
-                    self.catalogStatus = "Could not read selected realm DB — showing same-expansion examples only. \(error.localizedDescription)"
+                    self.catalogStatus = "Catalog database error: \(error.localizedDescription)"
                     self.statusMessage = self.catalogStatus
+                    self.appendCatalogDiagnostic("[catalog:\(self.selectedExpansion.rawValue)] \(error.localizedDescription)")
                 }
             }
         }
+    }
+
+    private func appendCatalogDiagnostic(_ message: String) {
+        let url = logs.appendingPathComponent("catalog.log")
+        let stamp = ISO8601DateFormatter().string(from: Date())
+        let line = "[\(stamp)] \(message)\n"
+        do {
+            try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
+            if FileManager.default.fileExists(atPath: url.path), let handle = try? FileHandle(forWritingTo: url) {
+                defer { try? handle.close() }
+                try handle.seekToEnd()
+                try handle.write(contentsOf: Data(line.utf8))
+            } else {
+                try Data(line.utf8).write(to: url, options: .atomic)
+            }
+        } catch { }
     }
 
     func loadMountCollection(resetFilters: Bool = false) {

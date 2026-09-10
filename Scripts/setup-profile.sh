@@ -108,6 +108,14 @@ PY
     [[ "$count" == "1" ]] || { echo "ERROR: Database bootstrap incomplete: missing ${spec}" >&2; exit 33; }
   done
 
+  wotlk_items="$("${M[@]}" --batch --skip-column-names acore_world -e "SELECT COUNT(*) FROM item_template;" 2>/dev/null || echo 0)"
+  echo "[realm:wotlk] Catalog health: items=$wotlk_items"
+  if (( ${wotlk_items:-0} < 10000 )); then
+    echo "ERROR: WotLK world DB is incomplete: acore_world.item_template has only $wotlk_items rows." >&2
+    echo "ERROR: Re-run Repair Realm after clearing the incomplete world DB/database cache if dbimport cannot restore it." >&2
+    exit 36
+  fi
+
   # Ensure the local realm exists and points back to this Mac.
   "${M[@]}" acore_auth -e "INSERT INTO realmlist (id,name,address,localAddress,localSubnetMask,port,icon,flag,timezone,allowedSecurityLevel,population,gamebuild) VALUES (1,'WoW Control Center','127.0.0.1','127.0.0.1','255.255.255.0',8085,0,0,1,0,0,12340) ON DUPLICATE KEY UPDATE name=VALUES(name),address=VALUES(address),localAddress=VALUES(localAddress),port=VALUES(port),gamebuild=VALUES(gamebuild);"
 
