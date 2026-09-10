@@ -1,0 +1,22 @@
+name: Package v1592 ONE ZIP
+
+on:
+  push:
+    paths:
+      - '.github/workflows/package-v1592-onezip.yml'
+
+jobs:
+  package:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Stage tracked source without nested ZIP
+        run: |
+          mkdir -p artifact/WoW-Custom-Server-Manager
+          git archive --format=tar HEAD | tar -xf - -C artifact/WoW-Custom-Server-Manager
+          rm -f artifact/WoW-Custom-Server-Manager/.github/workflows/package-v1592-onezip.yml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WoWServerControlCenter-1.5.92-WotLKDBPortFix-ONE-ZIP
+          path: artifact/WoW-Custom-Server-Manager
+          if-no-files-found: error
