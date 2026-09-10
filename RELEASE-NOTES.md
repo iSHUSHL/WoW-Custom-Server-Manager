@@ -1,3 +1,12 @@
+# v1.5.82 — Premium UI Rebuild
+
+- Rebuilt the premium header after visual review of the 1.5.81 screenshot.
+- Restricts the hero expansion selector to exactly the five supported eras so cards never collapse into ellipses.
+- Replaced low-contrast standard macOS action buttons with high-contrast custom premium controls.
+- Larger cinematic brand header, stronger gold framing, richer depth and readable status presentation.
+- Larger sidebar logo and cleaner navigation proportions.
+- Increased minimum app window size so the premium layout has enough room to render correctly.
+
 # v1.5.81 — Premium Header & Navigation Redesign
 
 - Replaced the duplicated app-name treatment with a single premium brand header.
