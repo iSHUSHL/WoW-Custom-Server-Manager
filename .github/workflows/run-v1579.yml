@@ -1,0 +1,38 @@
+name: Run v1579 Patch
+
+on:
+  push:
+    paths:
+      - '.tools/apply_v1579.py'
+      - '.github/workflows/run-v1579.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply patch
+        run: python3 .tools/apply_v1579.py
+      - name: Validate shell
+        run: |
+          bash -n Build.command
+          bash -n Scripts/setup-profile.sh
+      - name: Build release
+        run: swift build -c release
+      - name: Package source
+        run: |
+          git archive --format=zip --output=WoWServerControlCenter-1.5.79-BlizzardTooltipIcons.zip HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WoWServerControlCenter-1.5.79-BlizzardTooltipIcons
+          path: WoWServerControlCenter-1.5.79-BlizzardTooltipIcons.zip
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Sources/WoWServerControlCenter/ContentView.swift Sources/WoWServerControlCenter/ServerModel.swift Build.command RELEASE-NOTES.md
+          git commit -m "Add Blizzard-style tooltips and resilient era icons (1.5.79)" || exit 0
+          git push
