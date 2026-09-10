@@ -79,9 +79,34 @@ if [[ "$PROFILE" == "wotlk" ]]; then
   mkdir -p "$PR/data"
 
   # These are the AzerothCore tools required for a complete 3.3.5a data extraction.
+  # Self-heal older/partial installs: if cmake left a tool in the persistent
+  # WotLK build tree, recover it into the managed profile instead of falsely
+  # telling the user to rebuild a core that is already healthy.
+  WOTLK_BUILD="$ROOT/sources/wotlk/build"
+  resolve_wotlk_extractor() {
+    local tool="$1" found=""
+    if [[ -x "$PR/bin/$tool" ]]; then
+      printf '%s\n' "$PR/bin/$tool"
+      return 0
+    fi
+    found="$(find "$WOTLK_BUILD" -type f -name "$tool" -perm -111 -print 2>/dev/null | head -n 1 || true)"
+    if [[ -n "$found" ]]; then
+      cp -f "$found" "$PR/bin/$tool"
+      chmod +x "$PR/bin/$tool"
+      echo "[client:wotlk] Recovered missing $tool from the existing core build." >&2
+      printf '%s\n' "$PR/bin/$tool"
+      return 0
+    fi
+    return 1
+  }
+
   for tool in mapextractor vmap4extractor vmap4assembler mmaps_generator; do
-    [[ -x "$PR/bin/$tool" ]] || { echo "ERROR: Missing extractor $PR/bin/$tool. Reinstall the WotLK core first." >&2; exit 41; }
-    cp -f "$PR/bin/$tool" "$CLIENTDIR/$tool"
+    TOOL_PATH="$(resolve_wotlk_extractor "$tool" || true)"
+    if [[ -z "$TOOL_PATH" || ! -x "$TOOL_PATH" ]]; then
+      echo "ERROR: Missing WotLK extractor '$tool'. Core binaries exist, but the extractor target was not produced. Use WotLK → Rebuild Core + PlayerBots once with WoWCC 1.5.87 or newer. See Core Build log in WoWCC Logs." >&2
+      exit 41
+    fi
+    cp -f "$TOOL_PATH" "$CLIENTDIR/$tool"
     chmod +x "$CLIENTDIR/$tool"
   done
 

@@ -1,3 +1,10 @@
+# v1.5.87 — WotLK Extractor Recovery
+
+- Fixes Prepare Client falsely reporting a missing `mapextractor` after a successful WotLK/PlayerBots core rebuild.
+- WotLK rebuild now verifies all four required extractor binaries and recovers them from the CMake build tree into the managed profile `bin/` directory when necessary.
+- Prepare Client can self-heal an existing WotLK installation by locating already-built extractors in the persistent build tree.
+- Missing extractor errors now point to the WoWCC Core Build log instead of simply asking to reinstall repeatedly.
+
 # v1.5.86 — WotLK PlayerBots
 
 - Added managed WotLK PlayerBots using the compatible Playerbot AzerothCore fork plus `mod-playerbots`.

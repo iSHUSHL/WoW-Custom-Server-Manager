@@ -563,6 +563,30 @@ fi
 log "Installing core into $PROFILE_ROOT"
 cmake --install "$BUILD" --config Release
 
+# WotLK extractor recovery. The Playerbot fork builds the standard AzerothCore
+# map/vmap/mmap tools, but some CMake install layouts can leave them in the
+# build tree instead of PROFILE_ROOT/bin. Prepare Client must never depend on
+# that install-layout detail. Copy the verified executables into our stable
+# managed bin path after every WotLK rebuild.
+if [[ "$PROFILE" == "wotlk" ]]; then
+  log "Verifying WotLK client-data extractors…"
+  for tool in mapextractor vmap4extractor vmap4assembler mmaps_generator; do
+    if [[ ! -x "$PROFILE_ROOT/bin/$tool" ]]; then
+      FOUND_TOOL="$(find "$BUILD" -type f -name "$tool" -perm -111 -print 2>/dev/null | head -n 1 || true)"
+      if [[ -n "$FOUND_TOOL" ]]; then
+        cp -f "$FOUND_TOOL" "$PROFILE_ROOT/bin/$tool"
+        chmod +x "$PROFILE_ROOT/bin/$tool"
+        log "Recovered extractor $tool from build tree."
+      fi
+    fi
+    [[ -x "$PROFILE_ROOT/bin/$tool" ]] || fail "WotLK build completed but required extractor '$tool' was not produced. See $BUILD_LOG"
+  done
+  if [[ -f "$BUILD/bin/mmaps-config.yaml" && ! -f "$PROFILE_ROOT/bin/mmaps-config.yaml" ]]; then
+    cp -f "$BUILD/bin/mmaps-config.yaml" "$PROFILE_ROOT/bin/mmaps-config.yaml"
+  fi
+  log "WotLK extractors ready: mapextractor, vmap4extractor, vmap4assembler, mmaps_generator"
+fi
+
 # Normalize common install layouts into the Control Center layout.
 find "$PROFILE_ROOT" -type f \( -name authserver -o -name worldserver -o -name realmd -o -name mangosd -o -name dbimport -o -name mapextractor -o -name vmap4extractor -o -name vmap4assembler -o -name mmaps_generator \) -perm -111 2>/dev/null | while IFS= read -r f; do
   [[ "$f" == "$PROFILE_ROOT/bin/$(basename "$f")" ]] || cp -f "$f" "$PROFILE_ROOT/bin/$(basename "$f")"
