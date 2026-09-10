@@ -707,6 +707,35 @@ final class ServerModel: ObservableObject {
     }
 
     private func repairCMaNGOSDatabaseConfigIfNeeded() throws {
+        if selectedExpansion == .wotlk {
+            let fm = FileManager.default
+            let configs = [
+                profileRoot.appendingPathComponent("configs/authserver.conf"),
+                profileRoot.appendingPathComponent("configs/worldserver.conf")
+            ]
+            let databaseInfo: [(String, String)] = [
+                ("LoginDatabaseInfo", "acore_auth"),
+                ("WorldDatabaseInfo", "acore_world"),
+                ("CharacterDatabaseInfo", "acore_characters")
+            ]
+
+            for configURL in configs where fm.fileExists(atPath: configURL.path) {
+                var text = try String(contentsOf: configURL, encoding: .utf8)
+                for (key, database) in databaseInfo {
+                    let pattern = "(?m)^\\s*" + NSRegularExpression.escapedPattern(for: key) + "\\s*=.*$"
+                    let replacement = "\(key) = \"127.0.0.1;\(mysqlPort);wowcc;wowcc;\(database)\""
+                    if let regex = try? NSRegularExpression(pattern: pattern) {
+                        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+                        if regex.firstMatch(in: text, range: range) != nil {
+                            text = regex.stringByReplacingMatches(in: text, range: range, withTemplate: replacement)
+                        }
+                    }
+                }
+                try text.write(to: configURL, atomically: true, encoding: .utf8)
+            }
+            return
+        }
+
         guard selectedExpansion.serverFamily == .cmangos else { return }
 
         let fm = FileManager.default
@@ -1120,8 +1149,14 @@ final class ServerModel: ObservableObject {
         if p.terminationStatus != 0 { throw err(String(data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "Unable to configure DB user") }
     }
 
-    func startAuth() throws { try startBinary(authBinaryName, process: auth, interactive: false, confName: authConfName) }
-    func startWorld() throws { try startBinary(worldBinaryName, process: world, interactive: true, confName: worldConfName) }
+    func startAuth() throws {
+        try repairCMaNGOSDatabaseConfigIfNeeded()
+        try startBinary(authBinaryName, process: auth, interactive: false, confName: authConfName)
+    }
+    func startWorld() throws {
+        try repairCMaNGOSDatabaseConfigIfNeeded()
+        try startBinary(worldBinaryName, process: world, interactive: true, confName: worldConfName)
+    }
 
     private func startBinary(_ name: String, process: ManagedProcess, interactive: Bool, confName: String) throws {
         try ensureCompatibilityAlias()

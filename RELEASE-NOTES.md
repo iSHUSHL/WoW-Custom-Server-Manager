@@ -1,3 +1,9 @@
+# v1.5.92 — WotLK Managed MySQL Port Repair
+
+- Fixes WotLK world/auth startup attempting MySQL on port 3306 while WoWCC managed MySQL listens on 3307.
+- Auth and World launch now self-heal AzerothCore database connection strings before every start and watchdog restart.
+- Keeps Login/World/Character database connections aligned with WoWCC managed MySQL credentials and port.
+
 # v1.5.91 — WotLK VMap Retry Cleanup
 
 - Fixes `Your output directory seems to be polluted` when rerunning WotLK Prepare Client.
