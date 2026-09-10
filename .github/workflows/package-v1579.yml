@@ -1,0 +1,29 @@
+name: Package v1579
+
+on:
+  push:
+    paths:
+      - '.github/workflows/package-v1579.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify release build
+        run: |
+          bash -n Build.command
+          bash -n Scripts/setup-profile.sh
+          swift build -c release
+          grep -q '<string>1.5.79</string>' Build.command
+          grep -q 'Reload Missing Icons' Sources/WoWServerControlCenter/ContentView.swift
+          grep -q 'wowheadXMLCandidates' Sources/WoWServerControlCenter/ServerModel.swift
+      - name: Package current main
+        run: git archive --format=zip --output=WoWServerControlCenter-1.5.79-BlizzardTooltipIcons.zip HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WoWServerControlCenter-1.5.79-FINAL
+          path: WoWServerControlCenter-1.5.79-BlizzardTooltipIcons.zip
