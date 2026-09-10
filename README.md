@@ -62,6 +62,7 @@ Apple Silicon users can use **WoWSilicon** to run the original older Windows WoW
 - Collection Browser reads directly from the selected expansion world database for Vanilla, TBC, WotLK, Cataclysm, and Mists of Pandaria.
 - All Items exposes every `item_template` row through complete paging with total counts; collection switching loads automatically.
 - Collection types include raid sets, weapons, armor, legendaries, BiS/endgame, bags, mounts, and the complete item catalog.
+- Legendaries are database-backed per expansion rather than relying on the old short built-in list.
 - Search the actual world database item catalog by name or item ID.
 - Browse item icons and tooltips.
 - Give individual items to a selected character.
