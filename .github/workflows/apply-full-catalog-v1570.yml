@@ -1,0 +1,82 @@
+name: Apply Full Catalog v1.5.70
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/apply-full-catalog-v1570.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch full catalog loading
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path('Sources/WoWServerControlCenter/ServerModel.swift')
+          s=p.read_text()
+
+          start=s.find('    // WoW clients/realm DBs are cumulative:')
+          end=s.find('    private func catalogWhereClause', start)
+          if start < 0 or end < 0:
+              raise SystemExit('era range block not found')
+          s=s[:start] + s[end:]
+
+          if 'var clauses: [String] = [expansionItemEntryClause]' not in s:
+              raise SystemExit('range clause not found')
+          s=s.replace('var clauses: [String] = [expansionItemEntryClause]', 'var clauses: [String] = ["1=1"]', 1)
+
+          old='''                    guard self.selectedExpansion == expansion else { return }\n                    self.serverCatalog = parsed\n'''
+          new='''                    guard self.selectedExpansion == expansion,\n                          self.catalogKind == kind,\n                          self.catalogPage == page else { return }\n                    self.serverCatalog = parsed\n'''
+          if old in s:
+              s=s.replace(old,new,1)
+
+          old='''                    guard self.selectedExpansion == expansion else { return }\n                    self.catalogLoading = false\n                    self.serverCatalog = BuiltInCatalog.entries(for: expansion)\n                    self.catalogHasMore = false\n                    self.catalogStatus = "Could not read \\(expansion.shortTitle) realm DB — showing same-expansion examples only. \\(error.localizedDescription)"\n'''
+          new='''                    guard self.selectedExpansion == expansion,\n                          self.catalogKind == kind,\n                          self.catalogPage == page else { return }\n                    self.catalogLoading = false\n                    self.serverCatalog = []\n                    self.catalogHasMore = false\n                    self.catalogStatus = "Could not read the full \\(expansion.shortTitle) realm catalog: \\(error.localizedDescription)"\n'''
+          if old in s:
+              s=s.replace(old,new,1)
+
+          needle='''            resetCollectionStateForExpansionChange()\n            rebuildProcesses()\n            refresh()\n'''
+          repl='''            resetCollectionStateForExpansionChange()\n            rebuildProcesses()\n            refresh()\n            DispatchQueue.main.async { [weak self] in\n                guard let self else { return }\n                self.catalogKind = .all\n                self.loadCatalogPage(reset: true)\n                self.loadGearSets()\n            }\n'''
+          if needle in s:
+              s=s.replace(needle,repl,1)
+
+          p.write_text(s)
+
+          b=Path('Build.command')
+          t=b.read_text()
+          t=re.sub(r'<key>CFBundleShortVersionString</key><string>[^<]+</string>', '<key>CFBundleShortVersionString</key><string>1.5.70</string>', t, count=1)
+          t=re.sub(r'<key>CFBundleVersion</key><string>[^<]+</string>', '<key>CFBundleVersion</key><string>1570</string>', t, count=1)
+          b.write_text(t)
+
+          rel=Path('RELEASE-NOTES.md')
+          note='''# v1.5.70 — Full Catalog Loading Fix\n\n- Removes hard-coded item-ID era ranges that were cutting valid items out of the Collection Browser.\n- All Items now reads every row in the selected expansion profile world database with paging.\n- Switching expansions automatically loads All Items and refreshes gear sets.\n- Stale async results from a previous expansion/category/page are discarded.\n- Database failures no longer masquerade as a tiny complete catalog.\n\n'''
+          r=rel.read_text()
+          if not r.startswith('# v1.5.70'):
+              rel.write_text(note+r)
+          PY
+
+          bash -n Build.command
+          bash -n Verify.command
+          find Scripts -type f -name '*.sh' -print0 | xargs -0 -n1 bash -n
+          python3 -m py_compile Scripts/*.py
+
+      - name: Commit v1.5.70
+        run: |
+          rm .github/workflows/apply-full-catalog-v1570.yml
+          rm -f .github/workflows/apply-complete-catalog-race-fix.yml
+          git config user.name "WoWCC Automation"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "Fix complete catalog loading for selected expansion"
+          git push
