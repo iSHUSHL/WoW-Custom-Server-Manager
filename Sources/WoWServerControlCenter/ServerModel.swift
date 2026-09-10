@@ -821,6 +821,26 @@ final class ServerModel: ObservableObject {
             try fm.createDirectory(at: modulesDir, withIntermediateDirectories: true)
             configured = configDir.appendingPathComponent("playerbots.conf")
             runtime = modulesDir.appendingPathComponent("playerbots.conf")
+
+            // Older PlayerBots configs may still point at MySQL 3306. WoWCC's
+            // managed database always uses mysqlPort (normally 3307), so repair
+            // the persistent config before copying it into the runtime module dir.
+            if fm.fileExists(atPath: configured.path) {
+                var text = try String(contentsOf: configured, encoding: .utf8)
+                let key = "PlayerbotsDatabaseInfo"
+                let replacement = "PlayerbotsDatabaseInfo = \"127.0.0.1;\(mysqlPort);wowcc;wowcc;acore_playerbots\""
+                let pattern = "(?m)^\\s*#?\\s*" + NSRegularExpression.escapedPattern(for: key) + "\\s*=.*$"
+                if let regex = try? NSRegularExpression(pattern: pattern) {
+                    let range = NSRange(text.startIndex..<text.endIndex, in: text)
+                    if regex.firstMatch(in: text, range: range) != nil {
+                        text = regex.stringByReplacingMatches(in: text, range: range, withTemplate: replacement)
+                    } else {
+                        if !text.hasSuffix("\n") { text += "\n" }
+                        text += replacement + "\n"
+                    }
+                }
+                try text.write(to: configured, atomically: true, encoding: .utf8)
+            }
         } else {
             let etcDir = profileRoot.appendingPathComponent("etc", isDirectory: true)
             try fm.createDirectory(at: etcDir, withIntermediateDirectories: true)
@@ -832,6 +852,24 @@ final class ServerModel: ObservableObject {
             try fm.copyItem(at: configured, to: runtime)
         } else if !fm.fileExists(atPath: runtime.path) {
             throw err("PlayerBots runtime config is missing. Run PlayerBots → Populate / Repair World once.")
+        }
+
+        // Also self-heal a runtime-only WotLK config in case the persistent copy
+        // is missing but an older module config is still present.
+        if selectedExpansion == .wotlk, fm.fileExists(atPath: runtime.path) {
+            var text = try String(contentsOf: runtime, encoding: .utf8)
+            let replacement = "PlayerbotsDatabaseInfo = \"127.0.0.1;\(mysqlPort);wowcc;wowcc;acore_playerbots\""
+            let pattern = "(?m)^\\s*#?\\s*PlayerbotsDatabaseInfo\\s*=.*$"
+            if let regex = try? NSRegularExpression(pattern: pattern) {
+                let range = NSRange(text.startIndex..<text.endIndex, in: text)
+                if regex.firstMatch(in: text, range: range) != nil {
+                    text = regex.stringByReplacingMatches(in: text, range: range, withTemplate: replacement)
+                } else {
+                    if !text.hasSuffix("\n") { text += "\n" }
+                    text += replacement + "\n"
+                }
+            }
+            try text.write(to: runtime, atomically: true, encoding: .utf8)
         }
     }
 

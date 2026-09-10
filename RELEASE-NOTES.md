@@ -1,3 +1,10 @@
+# v1.5.94 — WotLK PlayerBots DB Port Self-Heal
+
+- Fixes WotLK worldserver startup failure where acore_playerbots still attempted MySQL 127.0.0.1:3306.
+- Repairs PlayerbotsDatabaseInfo to WoWCC managed MySQL port 3307 before every World start.
+- Updates both persistent configs/playerbots.conf and runtime etc/modules/playerbots.conf.
+- No core rebuild, client rebuild, or PlayerBots repopulation required.
+
 # v1.5.93 — macOS SDK 27 / Swift 6 UI Build Fix
 
 - Fixes local Build.command failures under macOS SDK 27 / Swift 6 where helper-view closures treated ContentView state as immutable.
