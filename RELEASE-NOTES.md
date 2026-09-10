@@ -1,3 +1,11 @@
+# v1.5.93 — macOS SDK 27 / Swift 6 UI Build Fix
+
+- Fixes local Build.command failures under macOS SDK 27 / Swift 6 where helper-view closures treated ContentView state as immutable.
+- Moves mutable ContentView helper state into a reference-backed ObservableObject.
+- Restores reliable Level field binding and cleanup/navigation mutations.
+- Splits the sidebar row into a smaller view expression to avoid Swift compiler type-check timeouts.
+- Keeps the WotLK managed MySQL 3307 self-heal from 1.5.92.
+
 # v1.5.92 — WotLK Managed MySQL Port Repair
 
 - Fixes WotLK world/auth startup attempting MySQL on port 3306 while WoWCC managed MySQL listens on 3307.

@@ -1,14 +1,64 @@
 import SwiftUI
 import AppKit
 
+private enum CleanupAction: String, Identifiable {
+    case buildCache, databaseCache, logs, backups, core, clientData, clientLink, allDownloads, mysqlData, mysqlRuntime, realmDatabase, factoryReset
+    var id: String { rawValue }
+    var isHighlyDestructive: Bool { self == .mysqlData || self == .mysqlRuntime || self == .realmDatabase || self == .factoryReset }
+    var buttonTitle: String {
+        switch self {
+        case .buildCache: return "Clean Build Cache"
+        case .databaseCache: return "Remove DB Cache"
+        case .logs: return "Clear Logs"
+        case .backups: return "Delete Backups"
+        case .core: return "Remove Core"
+        case .clientData: return "Remove Extracted Data"
+        case .clientLink: return "Forget Client Link"
+        case .allDownloads: return "Clean All Downloads"
+        case .mysqlData: return "Delete MySQL Data"
+        case .mysqlRuntime: return "Uninstall MySQL 8.4"
+        case .realmDatabase: return "Delete Realm Database"
+        case .factoryReset: return "Factory Reset Era"
+        }
+    }
+    var warning: String {
+        switch self {
+        case .mysqlData:
+            return "This permanently deletes the selected era's managed MySQL data, including realm databases, accounts and characters. MySQL 8.4 itself stays installed."
+        case .mysqlRuntime:
+            return "This uninstalls the Homebrew mysql@8.4 runtime from this Mac. Control Center realm data is kept. If other software uses this Homebrew package, it may also be affected."
+        case .realmDatabase:
+            return "This permanently deletes the selected era's managed MySQL database, including accounts and characters. Create a backup first if you want to keep them."
+        case .factoryReset:
+            return "This permanently removes every WoW Control Center-managed file and backup for the selected era. Your external WoW client is not deleted."
+        case .backups:
+            return "This deletes the selected era's backup files. This cannot be undone."
+        case .core:
+            return "The downloaded core source/build and installed core binaries will be removed. You can reinstall them later."
+        case .clientData:
+            return "Extracted server data will be removed. The original game client remains untouched."
+        case .allDownloads:
+            return "All app-downloaded/re-created components for the selected era will be removed, but realm DB and backups are kept."
+        case .clientLink:
+            return "Control Center will forget this client path. No game files will be deleted."
+        default:
+            return "The selected Control Center-managed files will be removed."
+        }
+    }
+}
+
+private final class ContentViewUIState: ObservableObject {
+    @Published var section = "Dashboard"
+    @Published var customItemID = "49623"
+    @Published var customItemCount = "1"
+    @Published var customSpellID = "72286"
+    @Published var levelTarget = "80"
+    @Published var pendingCleanup: CleanupAction?
+}
+
 struct ContentView: View {
     @EnvironmentObject var model: ServerModel
-    @State private var section = "Dashboard"
-    @State private var customItemID = "49623"
-    @State private var customItemCount = "1"
-    @State private var customSpellID = "72286"
-    @State private var levelTarget = "80"
-    @State private var pendingCleanup: CleanupAction?
+    @StateObject private var ui = ContentViewUIState()
 
     private let sections = ["Dashboard","Setup Guide","Health Checks","Expansions","Characters","Gear Sets","Collection Browser","Mounts","PlayerBots","Accounts","Database","Logs","Backups","Storage & Cleanup","Settings"]
 
@@ -28,22 +78,7 @@ struct ContentView: View {
                     ScrollView {
                         LazyVStack(spacing: 5) {
                             ForEach(sections, id: \.self) { item in
-                                Button {
-                                    section = item
-                                } label: {
-                                    HStack(spacing: 10) {
-                                        Image(systemName: icon(item))
-                                            .frame(width: 20)
-                                        Text(item)
-                                        Spacer()
-                                    }
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 9)
-                                    .contentShape(Rectangle())
-                                    .background(section == item ? Color.accentColor.opacity(0.16) : Color.clear,
-                                                in: RoundedRectangle(cornerRadius: 8))
-                                }
-                                .buttonStyle(.plain)
+                                sidebarButton(item)
                             }
                         }
                         .padding(10)
@@ -62,7 +97,7 @@ struct ContentView: View {
                 .navigationSplitViewColumnWidth(min: 190, ideal: 220, max: 260)
             } detail: {
                 Group {
-                    switch section {
+                    switch ui.section {
                     case "Dashboard": dashboard
                     case "Setup Guide": setupGuide
                     case "Health Checks": healthChecks
@@ -89,9 +124,9 @@ struct ContentView: View {
             bottomStatusBar
         }
         .frame(minWidth: 960, minHeight: 600)
-        .alert("Confirm Cleanup", isPresented: Binding(get: { pendingCleanup != nil }, set: { if !$0 { pendingCleanup = nil } }), presenting: pendingCleanup) { action in
-            Button("Cancel", role: .cancel) { pendingCleanup = nil }
-            Button(action.buttonTitle, role: .destructive) { performCleanup(action); pendingCleanup = nil }
+        .alert("Confirm Cleanup", isPresented: Binding(get: { ui.pendingCleanup != nil }, set: { if !$0 { ui.pendingCleanup = nil } }), presenting: ui.pendingCleanup) { action in
+            Button("Cancel", role: .cancel) { ui.pendingCleanup = nil }
+            Button(action.buttonTitle, role: .destructive) { performCleanup(action); ui.pendingCleanup = nil }
         } message: { action in
             Text(action.warning)
         }
@@ -139,6 +174,24 @@ struct ContentView: View {
         .padding(.horizontal, 12)
         .frame(minHeight: 52)
         .background(.bar)
+    }
+
+    private func sidebarButton(_ item: String) -> some View {
+        let selected = ui.section == item
+        let symbol = icon(item)
+        return Button { ui.section = item } label: {
+            HStack(spacing: 10) {
+                Image(systemName: symbol).frame(width: 20)
+                Text(item)
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .contentShape(Rectangle())
+            .background(selected ? Color.accentColor.opacity(0.16) : Color.clear,
+                        in: RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
     }
 
     private func statusDot(_ title: String, _ ready: Bool) -> some View {
@@ -216,14 +269,14 @@ struct ContentView: View {
 
             Text("Quick Administration").font(.title2.bold())
             LazyVGrid(columns:[GridItem(.adaptive(minimum:220))],spacing:12) {
-                quick("Setup Guide","list.number") { section="Setup Guide" }
-                quick("Health Checks","checkmark.shield.fill") { section="Health Checks" }
-                quick("Characters","person.3.fill") { section="Characters" }
-                quick("Gear Sets","square.grid.3x3.fill") { section="Gear Sets" }
-                quick("Give Gear","shield.lefthalf.filled") { section="Collection Browser" }
-                quick("Legendary","sparkles") { model.catalogKind = .legendary; section="Collection Browser" }
-                quick("Mounts","figure.equestrian.sports") { model.catalogKind = .mount; section="Mounts" }
-                quick("Accounts","person.crop.circle.badge.checkmark") { section="Accounts" }
+                quick("Setup Guide","list.number") { ui.section="Setup Guide" }
+                quick("Health Checks","checkmark.shield.fill") { ui.section="Health Checks" }
+                quick("Characters","person.3.fill") { ui.section="Characters" }
+                quick("Gear Sets","square.grid.3x3.fill") { ui.section="Gear Sets" }
+                quick("Give Gear","shield.lefthalf.filled") { ui.section="Collection Browser" }
+                quick("Legendary","sparkles") { model.catalogKind = .legendary; ui.section="Collection Browser" }
+                quick("Mounts","figure.equestrian.sports") { model.catalogKind = .mount; ui.section="Mounts" }
+                quick("Accounts","person.crop.circle.badge.checkmark") { ui.section="Accounts" }
                 quick("Backup Now","externaldrive.fill") { model.runBackup() }
             }
             Spacer()
@@ -593,7 +646,7 @@ struct ContentView: View {
                         }
                         .buttonStyle(.borderedProminent)
 
-                        Button("Accounts") { section = "Accounts" }
+                        Button("Accounts") { ui.section = "Accounts" }
                     }
 
                     Text("Uses the selected \(model.selectedExpansion.shortTitle) game client to create the character correctly for that expansion. Direct SQL character creation is intentionally avoided because each core requires different starting data.")
@@ -623,9 +676,9 @@ struct ContentView: View {
                         if let c=model.selectedCharacter {
                             Text(c.name).font(.title2.bold())
                             Text("Level \(c.level) • \(c.race) \(c.playerClass)")
-                            HStack { TextField("Level",text:$levelTarget).frame(width:80); Button("Set Level") { if let n=Int(levelTarget) { model.setLevel(n) } } }
-                            Button("Open Gear Catalog") { section="Collection Browser" }
-                            Button("Open Mount Catalog") { section="Mounts" }
+                            HStack { TextField("Level",text:$ui.levelTarget).frame(width:80); Button("Set Level") { if let n=Int(ui.levelTarget) { model.setLevel(n) } } }
+                            Button("Open Gear Catalog") { ui.section="Collection Browser" }
+                            Button("Open Mount Catalog") { ui.section="Mounts" }
                             Divider()
                             HStack { Text("Inventory").font(.headline); Spacer(); Button("Reload") { model.loadInventory() } }
                             if model.inventory.isEmpty { Text("No inventory rows loaded").font(.caption).foregroundStyle(.secondary) }
@@ -689,7 +742,7 @@ struct ContentView: View {
                     model.catalogKind = .raidSet
                     model.searchText = ""
                     model.clearServerCatalog()
-                    section = "Collection Browser"
+                    ui.section = "Collection Browser"
                 }
             }
             Text(model.gearSetStatus).font(.caption).foregroundStyle(.secondary)
@@ -760,7 +813,7 @@ struct ContentView: View {
                 } else {
                     Button {
                         WoWTooltipPanel.shared.hide()
-                        section = "Characters"
+                        ui.section = "Characters"
                     } label: {
                         Label("No character selected — Create Character",systemImage:"exclamationmark.circle")
                     }
@@ -921,7 +974,7 @@ struct ContentView: View {
                                 if model.selectedCharacter == nil {
                                     Button {
                                         WoWTooltipPanel.shared.hide()
-                                        section = "Characters"
+                                        ui.section = "Characters"
                                     } label: {
                                         Label("Create Character",systemImage:"person.crop.circle.badge.plus")
                                     }
@@ -1004,7 +1057,7 @@ struct ContentView: View {
                         HStack { Button("Install MySQL 8.4") { model.installMySQLRuntime() }.disabled(model.operationActive); Button("Repair / Reinstall MySQL") { model.repairMySQLRuntime() }.disabled(model.operationActive); Button("Restart Managed MySQL") { model.restartManagedMySQL() }.disabled(model.operationActive || !model.mysqlRuntimeInstalled) }
                         Divider()
                         Text("Repair / Reinstall replaces the Homebrew MySQL 8.4 program files but keeps all Control Center realm databases and characters.").font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
-                        HStack { Button("Setup / Repair Realm DB") { model.setupSelectedProfile() }.disabled(model.operationActive || !model.mysqlRuntimeInstalled); Button("Health Checks") { section = "Health Checks" } }
+                        HStack { Button("Setup / Repair Realm DB") { model.setupSelectedProfile() }.disabled(model.operationActive || !model.mysqlRuntimeInstalled); Button("Health Checks") { ui.section = "Health Checks" } }
                     }.padding(6)
                 }
                 Spacer(minLength:20)
@@ -1077,7 +1130,7 @@ struct ContentView: View {
                                 Text(model.clientPath.isEmpty ? "No client is linked." : model.clientPath).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                             }
                             Spacer()
-                            Button("Forget Link") { pendingCleanup = .clientLink }.disabled(model.clientPath.isEmpty)
+                            Button("Forget Link") { ui.pendingCleanup = .clientLink }.disabled(model.clientPath.isEmpty)
                         }
                     }.padding(6)
                 }
@@ -1119,7 +1172,7 @@ struct ContentView: View {
                 Text(detail).font(.caption).foregroundStyle(.secondary)
             }
             Spacer(minLength: 20)
-            Button(button, role: action.isHighlyDestructive ? .destructive : nil) { pendingCleanup = action }
+            Button(button, role: action.isHighlyDestructive ? .destructive : nil) { ui.pendingCleanup = action }
         }
     }
 
@@ -1152,14 +1205,14 @@ struct ContentView: View {
                         LabeledContent("Client",value:model.clientPath.isEmpty ? "Not selected":model.clientPath)
                         LabeledContent("Data",value:model.dataRoot.path)
                         HStack {
-                            Button("Setup Guide") { section="Setup Guide" }
+                            Button("Setup Guide") { ui.section="Setup Guide" }
                             Button("Select Client…") { model.chooseClient() }
                             Button("Find Client Online") { model.findClientOnline() }
                             Button("Install Dependencies") { model.bootstrapMac() }
                             Button(model.profileInstalled ? (model.selectedExpansion == .tbc ? "Rebuild / Apply Patches" : "Repair / Rebuild Core") : "Install Core") { model.installSelectedProfile() }
                             Button("Prepare Client Data") { model.prepareClient() }
                             Button("Setup / Repair Realm") { model.setupSelectedProfile() }
-                            Button("Cleanup…") { section="Storage & Cleanup" }
+                            Button("Cleanup…") { ui.section="Storage & Cleanup" }
                         }
                     }
                     .padding(8)
@@ -1234,62 +1287,22 @@ struct ContentView: View {
 }
 
 
-private enum CleanupAction: String, Identifiable {
-    case buildCache, databaseCache, logs, backups, core, clientData, clientLink, allDownloads, mysqlData, mysqlRuntime, realmDatabase, factoryReset
-    var id: String { rawValue }
-    var isHighlyDestructive: Bool { self == .mysqlData || self == .mysqlRuntime || self == .realmDatabase || self == .factoryReset }
-    var buttonTitle: String {
-        switch self {
-        case .buildCache: return "Clean Build Cache"
-        case .databaseCache: return "Remove DB Cache"
-        case .logs: return "Clear Logs"
-        case .backups: return "Delete Backups"
-        case .core: return "Remove Core"
-        case .clientData: return "Remove Extracted Data"
-        case .clientLink: return "Forget Client Link"
-        case .allDownloads: return "Clean All Downloads"
-        case .mysqlData: return "Delete MySQL Data"
-        case .mysqlRuntime: return "Uninstall MySQL 8.4"
-        case .realmDatabase: return "Delete Realm Database"
-        case .factoryReset: return "Factory Reset Era"
-        }
-    }
-    var warning: String {
-        switch self {
-        case .mysqlData:
-            return "This permanently deletes the selected era's managed MySQL data, including realm databases, accounts and characters. MySQL 8.4 itself stays installed."
-        case .mysqlRuntime:
-            return "This uninstalls the Homebrew mysql@8.4 runtime from this Mac. Control Center realm data is kept. If other software uses this Homebrew package, it may also be affected."
-        case .realmDatabase:
-            return "This permanently deletes the selected era's managed MySQL database, including accounts and characters. Create a backup first if you want to keep them."
-        case .factoryReset:
-            return "This permanently removes every WoW Control Center-managed file and backup for the selected era. Your external WoW client is not deleted."
-        case .backups:
-            return "This deletes the selected era's backup files. This cannot be undone."
-        case .core:
-            return "The downloaded core source/build and installed core binaries will be removed. You can reinstall them later."
-        case .clientData:
-            return "Extracted server data will be removed. The original game client remains untouched."
-        case .allDownloads:
-            return "All app-downloaded/re-created components for the selected era will be removed, but realm DB and backups are kept."
-        case .clientLink:
-            return "Control Center will forget this client path. No game files will be deleted."
-        default:
-            return "The selected Control Center-managed files will be removed."
-        }
-    }
+
+
+private final class TooltipHoverState: ObservableObject {
+    @Published var hovering = false
 }
 
 private struct WoWItemTooltipModifier: ViewModifier {
     let text: String
     let quality: String
     let loading: Bool
-    @State private var hovering=false
+    @StateObject private var hoverState = TooltipHoverState()
 
     func body(content: Content) -> some View {
         content
             .onHover { value in
-                hovering=value
+                hoverState.hovering=value
                 if value {
                     WoWTooltipPanel.shared.show(text:text,quality:quality,loading:loading)
                 } else {
@@ -1297,12 +1310,12 @@ private struct WoWItemTooltipModifier: ViewModifier {
                 }
             }
             .onChange(of:text) { _, _ in
-                if hovering {
+                if hoverState.hovering {
                     WoWTooltipPanel.shared.show(text:text,quality:quality,loading:loading)
                 }
             }
             .onChange(of:loading) { _, _ in
-                if hovering {
+                if hoverState.hovering {
                     WoWTooltipPanel.shared.show(text:text,quality:quality,loading:loading)
                 }
             }
