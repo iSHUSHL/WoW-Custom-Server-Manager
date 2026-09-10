@@ -5,6 +5,9 @@ on:
     paths:
       - '.github/workflows/wotlk-db-port-v1592.yml'
 
+permissions:
+  contents: write
+
 jobs:
   patch-build-package:
     runs-on: macos-15
