@@ -1,4 +1,4 @@
-name: Apply Complete Catalog Race Fix
+name: Apply TBC Complete Catalog Fix
 
 on:
   push:
@@ -11,82 +11,100 @@ permissions:
 
 jobs:
   apply:
-    runs-on: ubuntu-latest
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Fix complete per-profile catalog loading
+      - name: Fix TBC complete collections
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          p=Path('Sources/WoWServerControlCenter/ServerModel.swift')
-          s=p.read_text()
+          import re
 
-          # The previous ID-range filter was only a heuristic and clipped valid
-          # rows. All Items must mean every item_template row in the selected
-          # expansion profile's own world database.
-          old='''        var clauses: [String] = [expansionItemEntryClause]\n'''
-          if old not in s:
-              raise SystemExit('catalog clause marker not found')
-          s=s.replace(old, '''        var clauses: [String] = ["1=1"]\n''', 1)
+          p = Path('Sources/WoWServerControlCenter/ServerModel.swift')
+          s = p.read_text()
 
-          # Remove the misleading hard-coded item-ID era buckets entirely.
-          start=s.find('    private var expansionItemEntryClause: String {')
-          end=s.find('    private func catalogWhereClause', start)
+          # Every profile owns its own world DB. Hard-coded item ID buckets clip
+          # valid Classic/TBC/WotLK rows and must never scope collections.
+          s = s.replace('        var clauses: [String] = [expansionItemEntryClause]\n',
+                        '        var clauses: [String] = ["1=1"]\n', 1)
+
+          # Gear Sets must also include every DB-defined set available in the
+          # selected profile, including older sets still present in TBC.
+          s = s.replace('        let expansionClause = expansionItemEntryClause\n',
+                        '        let expansionClause = "1=1"\n', 1)
+
+          # Remove the obsolete heuristic property after replacing both uses.
+          start = s.find('    private var expansionItemEntryClause: String {')
+          end = s.find('    private func catalogWhereClause', start)
           if start != -1 and end != -1:
-              s=s[:start] + s[end:]
+              s = s[:start] + s[end:]
 
-          # Capture the exact expansion/profile used by the query. This prevents
-          # a slow TBC query from painting TBC rows after the user switches to WotLK.
-          marker='''        let page = catalogPage\n        let pageSize = catalogPageSize\n        let kind = catalogKind\n'''
-          repl='''        let page = catalogPage\n        let pageSize = catalogPageSize\n        let kind = catalogKind\n        let queryExpansion = selectedExpansion\n'''
-          if marker not in s:
-              raise SystemExit('query snapshot marker not found')
-          s=s.replace(marker,repl,1)
+          # Mounts must always start from an unfiltered state. Hidden quality,
+          # class, slot or iLvl state must never produce a blank mount catalog.
+          old = '''    func loadMountCollection(resetFilters: Bool = false) {\n        catalogKind = .mount\n\n        // Mounts hides class/slot/min-iLvl controls, so those filters must\n        // never silently carry over from another collection or expansion.\n        equipSlotFilter = .all\n        playerClassFilter = .all\n        minimumItemLevel = ""\n\n        if resetFilters {\n            searchText = ""\n            itemQualityFilter = .all\n        }\n\n        loadCatalogPage(reset:true)\n    }\n'''
+          new = '''    func loadMountCollection(resetFilters: Bool = false) {\n        catalogKind = .mount\n\n        // Mounts is a complete era catalog. Never carry hidden filters into it.\n        equipSlotFilter = .all\n        playerClassFilter = .all\n        minimumItemLevel = ""\n        itemQualityFilter = .all\n        if resetFilters { searchText = "" }\n\n        loadCatalogPage(reset:true)\n    }\n'''
+          if old in s:
+              s = s.replace(old, new, 1)
 
-          marker='''                DispatchQueue.main.async {\n                    self.serverCatalog = parsed\n'''
-          repl='''                DispatchQueue.main.async {\n                    // Ignore stale results from a profile/category/page the user\n                    // already left. This is critical when switching expansions\n                    // while a large catalog query is still running.\n                    guard self.selectedExpansion == queryExpansion,\n                          self.catalogKind == kind,\n                          self.catalogPage == page else { return }\n                    self.serverCatalog = parsed\n'''
-          if marker not in s:
-              raise SystemExit('result guard marker not found')
-          s=s.replace(marker,repl,1)
-
-          # Do the same for errors so a stale TBC failure cannot overwrite WotLK UI.
-          marker='''            } catch {\n                DispatchQueue.main.async {\n                    self.catalogLoading = false\n                    self.catalogStatus = "Catalog DB: \\(error.localizedDescription)"\n'''
-          repl='''            } catch {\n                DispatchQueue.main.async {\n                    guard self.selectedExpansion == queryExpansion,\n                          self.catalogKind == kind,\n                          self.catalogPage == page else { return }\n                    self.catalogLoading = false\n                    self.catalogStatus = "Catalog DB: \\(error.localizedDescription)"\n'''
-          if marker not in s:
-              raise SystemExit('error guard marker not found')
-          s=s.replace(marker,repl,1)
+          # Broaden name fallback for odd/custom DB rows while keeping the native
+          # Misc/Mount classification as the primary match.
+          marker = "                 OR name LIKE '%Mechanostrider%'\n"
+          extra = """                 OR name LIKE '%Mechanostrider%'\n                 OR name LIKE '%Ram%'\n                 OR name LIKE '%Wolf%'\n                 OR name LIKE '%Horse%'\n                 OR name LIKE '%Tiger%'\n                 OR name LIKE '%Battle Tank%'\n                 OR name LIKE '%Resonating Crystal%'\n                 OR name LIKE '%Phoenix%'\n"""
+          if marker in s and "Resonating Crystal" not in s:
+              s = s.replace(marker, extra, 1)
 
           p.write_text(s)
 
-          # Bump build.
-          b=Path('Build.command')
-          t=b.read_text()
-          import re
-          t=re.sub(r'<key>CFBundleShortVersionString</key><string>[^<]+</string>', '<key>CFBundleShortVersionString</key><string>1.5.70</string>', t, count=1)
-          t=re.sub(r'<key>CFBundleVersion</key><string>[^<]+</string>', '<key>CFBundleVersion</key><string>1570</string>', t, count=1)
+          # Bump release version.
+          b = Path('Build.command')
+          t = b.read_text()
+          t = re.sub(r'<key>CFBundleShortVersionString</key><string>[^<]+</string>',
+                     '<key>CFBundleShortVersionString</key><string>1.5.75</string>', t, count=1)
+          t = re.sub(r'<key>CFBundleVersion</key><string>[^<]+</string>',
+                     '<key>CFBundleVersion</key><string>1575</string>', t, count=1)
           b.write_text(t)
 
-          rel=Path('RELEASE-NOTES.md')
-          note='''# v1.5.70 — Full Catalog + Expansion Switch Race Fix\n\n- Removes hard-coded item-ID ranges that were clipping valid items from All Items and other collections.\n- All Items now queries every row in the selected profile's `item_template` database, with paging.\n- Adds expansion/category/page result guards so a slow query from the previous expansion can never populate the newly selected expansion screen.\n- Stale query errors are ignored for the same reason.\n- Existing collection filters, legendaries, sets, mounts, premium UI, and server controls remain intact.\n\n'''
-          r=rel.read_text()
-          if not r.startswith('# v1.5.70'):
-              rel.write_text(note+r)
+          rel = Path('RELEASE-NOTES.md')
+          note = '''# v1.5.75 — TBC Complete Catalog Restore\n\n- Removes hard-coded item-ID era ranges from Collection Browser and Gear Sets.\n- TBC now reads every item and every DB-defined item set available in its own `mangos.item_template`, including Classic content still valid in 2.4.3.\n- Restores complete TBC Raid Sets, Epic+ results, Legendaries, All Items, and Mounts.\n- Mounts always clear hidden quality/class/slot/iLvl filters before loading.\n- Broadens mount-name fallback for unusual/custom CMaNGOS rows while retaining the native Misc/Mount classification.\n- Keeps paging, class filters, item icons, tooltips, Give actions, PlayerBots, premium UI, and existing server controls intact.\n\n'''
+          r = rel.read_text()
+          if not r.startswith('# v1.5.75'):
+              rel.write_text(note + r)
           PY
 
+          # Source-level validation.
+          ! grep -q 'expansionItemEntryClause' Sources/WoWServerControlCenter/ServerModel.swift
+          grep -q 'var clauses: \[String\] = \["1=1"\]' Sources/WoWServerControlCenter/ServerModel.swift
+          grep -q 'let expansionClause = "1=1"' Sources/WoWServerControlCenter/ServerModel.swift
+          grep -q 'itemQualityFilter = .all' Sources/WoWServerControlCenter/ServerModel.swift
           bash -n Build.command
           bash -n Verify.command
           find Scripts -type f -name '*.sh' -print0 | xargs -0 -n1 bash -n
           python3 -m py_compile Scripts/*.py
+          swift build
 
-      - name: Commit fix
+      - name: Commit fixed source
+        shell: bash
         run: |
           rm .github/workflows/apply-complete-catalog-race-fix.yml
           git config user.name "WoWCC Automation"
           git config user.email "actions@users.noreply.github.com"
           git add -A
-          git commit -m "Fix full catalog loading and expansion switch race"
+          git commit -m "Restore complete TBC collections (1.5.75)"
           git push
+
+      - name: Package complete source ZIP
+        shell: bash
+        run: |
+          rm -rf Build .build
+          ditto -c -k --sequesterRsrc --keepParent . WoWServerControlCenter-1.5.75-TBCCompleteCatalog.zip
+
+      - name: Upload complete source ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: WoWServerControlCenter-1.5.75-TBCCompleteCatalog
+          path: WoWServerControlCenter-1.5.75-TBCCompleteCatalog.zip
+          if-no-files-found: error
