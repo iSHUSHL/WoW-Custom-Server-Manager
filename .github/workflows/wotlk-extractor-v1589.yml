@@ -1,0 +1,41 @@
+name: WotLK Extractor v1589
+
+on:
+  push:
+    paths:
+      - 'Scripts/apply-v1589-wotlk-extractor-rescue.py'
+      - '.github/workflows/wotlk-extractor-v1589.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-build-package:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply WotLK extractor rescue
+        run: python3 Scripts/apply-v1589-wotlk-extractor-rescue.py
+      - name: Remove temporary patch files
+        run: rm -f Scripts/apply-v1589-wotlk-extractor-rescue.py .github/workflows/wotlk-extractor-v1589.yml
+      - name: Validate scripts and app
+        run: |
+          bash -n Scripts/install-profile.sh
+          bash -n Scripts/prepare-client.sh
+          bash -n Build.command
+          swift build -c release
+      - name: Commit validated changes
+        run: |
+          git config user.name 'WoWCC Builder'
+          git config user.email 'actions@github.com'
+          git add -A
+          git commit -m 'Rescue WotLK extractor targets (1.5.89)'
+          git push origin main
+      - name: Package source
+        run: git archive --format=zip --output=/tmp/WoWServerControlCenter-1.5.89-WotLKExtractorRescue.zip HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WoWServerControlCenter-1.5.89-WotLKExtractorRescue
+          path: /tmp/WoWServerControlCenter-1.5.89-WotLKExtractorRescue.zip
