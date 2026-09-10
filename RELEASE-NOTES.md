@@ -1,3 +1,11 @@
+# v1.5.85 — Cataclysm Client DB2 Extraction Fix
+
+- Makes Cataclysm mapextractor mandatory instead of silently ignoring a missing/failed extractor.
+- Validates that Item.db2 and Item-sparse.db2 were actually produced.
+- Finds those DB2 files regardless of extractor output folder and normalizes them into managed data/db2/.
+- Keeps Cata Repair Realm dependent on real extracted 4.3.4 client data instead of failing later with a misleading missing-file error.
+- Leaves MoP preparation independent from the Cataclysm DB2 rules.
+
 # v1.5.84 — Cataclysm DB2 Realm + Catalog Fix
 
 - Fixes Cataclysm Repair Realm incorrectly requiring the WotLK-only `world.item_template`.
