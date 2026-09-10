@@ -14,142 +14,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Patch tooltip auto-fit
-        shell: bash
+      - name: Apply tooltip auto-fit patch
+        run: python3 Scripts/apply-v1580.py
+
+      - name: Remove temporary patch files
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          p = Path('Sources/WoWServerControlCenter/ContentView.swift')
-          s = p.read_text()
-
-          old_resize = '''    private func resizeToContent() {
-        guard let host=hostingView, let panel else { return }
-
-        let width: CGFloat = 470
-        let lineCount = max(4, hostingView?.rootView.text.components(separatedBy:"\\n").count ?? 4)
-        let estimated = CGFloat(lineCount * 18 + 66)
-        let screenLimit = max(300, (NSScreen.main?.visibleFrame.height ?? 900) - 48)
-        let height = min(max(estimated, 140), screenLimit)
-        panel.setContentSize(NSSize(width:width,height:height))
-        host.frame = NSRect(x:0,y:0,width:width,height:height)
-    }
-'''
-
-          new_resize = '''    private func resizeToContent() {
-        guard let host=hostingView, let panel else { return }
-
-        // Measure the actual wrapped SwiftUI content instead of estimating
-        // height from newline count. This prevents clipped text and fake
-        // scrollbars when one logical line wraps to multiple display lines.
-        let screen = NSScreen.screens.first { NSMouseInRect(NSEvent.mouseLocation,$0.frame,false) }
-            ?? NSScreen.main
-        let visible = screen?.visibleFrame ?? NSRect(x:0,y:0,width:1440,height:900)
-        let maxHeight = max(320, visible.height - 32)
-
-        // A slightly wider Blizzard-style tooltip greatly reduces wrapping.
-        // If an unusually verbose item is still too tall, progressively widen
-        // it (within the current display) and re-measure before sizing.
-        let maxWidth = max(470, min(700, visible.width - 32))
-        let candidateWidths: [CGFloat] = [500, 540, 580, 620, 660, 700]
-            .map { min($0, maxWidth) }
-            .filter { $0 >= 470 }
-
-        var chosenWidth = min(CGFloat(500), maxWidth)
-        var chosenHeight = maxHeight
-
-        for width in Array(Set(candidateWidths)).sorted() {
-            host.frame = NSRect(x:0,y:0,width:width,height:10_000)
-            host.layoutSubtreeIfNeeded()
-            let fitting = host.fittingSize
-            let measuredHeight = max(120, ceil(fitting.height))
-            chosenWidth = width
-            chosenHeight = measuredHeight
-            if measuredHeight <= maxHeight { break }
-        }
-
-        // Normal WoW tooltips now size to their full measured content and need
-        // no scrollbar. The final screen clamp only protects pathological DB
-        // records from creating a panel larger than the display.
-        chosenHeight = min(chosenHeight, maxHeight)
-        panel.setContentSize(NSSize(width:chosenWidth,height:chosenHeight))
-        host.frame = NSRect(x:0,y:0,width:chosenWidth,height:chosenHeight)
-        host.layoutSubtreeIfNeeded()
-    }
-'''
-          if old_resize not in s:
-              raise SystemExit('resizeToContent block not found')
-          s = s.replace(old_resize, new_resize, 1)
-
-          old_body = '''            ScrollView {
-                VStack(alignment:.leading,spacing:3) {
-                    ForEach(Array(lines.enumerated()), id: \\.offset) { index, line in
-                        Text(line.isEmpty ? " " : line)
-                            .font(lineFont(index:index,line:line))
-                            .foregroundStyle(lineColor(index:index,line:line))
-                            .lineLimit(nil)
-                            .multilineTextAlignment(.leading)
-                            .frame(maxWidth:.infinity,alignment:.leading)
-                            .fixedSize(horizontal:false,vertical:true)
-                    }
-                }
-                .frame(maxWidth:.infinity,alignment:.leading)
-                .textSelection(.enabled)
-            }
-            .scrollIndicators(.automatic)
-'''
-
-          new_body = '''            VStack(alignment:.leading,spacing:3) {
-                ForEach(Array(lines.enumerated()), id: \\.offset) { index, line in
-                    Text(line.isEmpty ? " " : line)
-                        .font(lineFont(index:index,line:line))
-                        .foregroundStyle(lineColor(index:index,line:line))
-                        .lineLimit(nil)
-                        .multilineTextAlignment(.leading)
-                        .frame(maxWidth:.infinity,alignment:.leading)
-                        .fixedSize(horizontal:false,vertical:true)
-                }
-            }
-            .frame(maxWidth:.infinity,alignment:.leading)
-            .textSelection(.enabled)
-'''
-          if old_body not in s:
-              raise SystemExit('tooltip ScrollView block not found')
-          s = s.replace(old_body, new_body, 1)
-
-          # Let the NSHostingView/panel choose the responsive width.
-          s = s.replace('.frame(width:470,alignment:.leading)\n        .background(', '.frame(minWidth:470,maxWidth:.infinity,alignment:.leading)\n        .background(', 1)
-
-          p.write_text(s)
-
-          b = Path('Build.command')
-          bs = b.read_text()
-          bs = bs.replace('<string>1.5.79</string>', '<string>1.5.80</string>', 1)
-          bs = bs.replace('<string>1579</string>', '<string>1580</string>', 1)
-          b.write_text(bs)
-
-          rn = Path('RELEASE-NOTES.md')
-          notes = rn.read_text() if rn.exists() else ''
-          header = '''# v1.5.80 — Tooltip Auto-Fit\n\n- Removed the unusable tooltip ScrollView/scrollbar from the visual-only floating panel.\n- Tooltip height now uses real SwiftUI wrapped-content measurement instead of newline estimation.\n- Tooltip automatically widens up to the available display width when needed so long Blizzard-style details fit without clipping.\n- Keeps the tooltip mouse-transparent so Give and other controls remain clickable.\n\n'''
-          if not notes.startswith('# v1.5.80'):
-              rn.write_text(header + notes)
-          PY
-
+          rm -f Scripts/apply-v1580.py
           rm -f .github/workflows/fix-v1580-tooltip-fit.yml
 
       - name: Validate and build release
-        shell: bash
         run: |
           bash -n Build.command
           find Scripts -type f -name '*.sh' -print0 | xargs -0 -n1 bash -n
           grep -q '<string>1.5.80</string>' Build.command
           grep -q '<string>1580</string>' Build.command
-          ! grep -q 'ScrollView {' <(sed -n '/private struct WoWTooltipPanelView/,/private var lines/p' Sources/WoWServerControlCenter/ContentView.swift)
           grep -q 'host.fittingSize' Sources/WoWServerControlCenter/ContentView.swift
           swift build -c release
 
       - name: Commit validated changes
-        shell: bash
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
@@ -158,9 +40,7 @@ jobs:
           git push origin HEAD:main
 
       - name: Package source
-        shell: bash
-        run: |
-          git archive --format=zip --output=WoWServerControlCenter-1.5.80-TooltipAutoFit.zip HEAD
+        run: git archive --format=zip --output=WoWServerControlCenter-1.5.80-TooltipAutoFit.zip HEAD
 
       - uses: actions/upload-artifact@v4
         with:
