@@ -162,15 +162,50 @@ struct WoWCCStatusPill: View {
     }
 }
 
+// Premium titlebar branding uses the exact app/Dock icon already embedded in
+// the built .app. No duplicate artwork is added to the source tree.
+private struct WoWCCWindowTitleBrand: View {
+    let icon: NSImage
+
+    var body: some View {
+        HStack(spacing: 9) {
+            Image(nsImage: icon)
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+                .frame(width: 28, height: 28)
+                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .shadow(color: WoWCCTheme.accent.opacity(0.28), radius: 7, x: 0, y: 2)
+
+            VStack(alignment: .leading, spacing: 0) {
+                Text("WoW Server Control Center")
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.primary)
+                Text("macOS Server Manager")
+                    .font(.system(size: 9.5, weight: .medium, design: .rounded))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 4)
+    }
+}
+
+private final class WoWCCTitlebarAccessoryController: NSTitlebarAccessoryViewController {
+    static let identifierString = "com.dualtonelab.wowcc.title-brand"
+}
+
 private struct WindowAppearanceConfigurator: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let view = NSView(frame: .zero)
         DispatchQueue.main.async { configure(view.window) }
         return view
     }
+
     func updateNSView(_ nsView: NSView, context: Context) {
         DispatchQueue.main.async { configure(nsView.window) }
     }
+
     private func configure(_ window: NSWindow?) {
         guard let window else { return }
         window.appearance = NSAppearance(named: .darkAqua)
@@ -179,5 +214,25 @@ private struct WindowAppearanceConfigurator: NSViewRepresentable {
         window.isMovableByWindowBackground = true
         window.backgroundColor = NSColor(calibratedRed: 0.020, green: 0.030, blue: 0.043, alpha: 1.0)
         if #available(macOS 11.0, *) { window.toolbarStyle = .unifiedCompact }
+
+        installPremiumTitleBrand(in: window)
+    }
+
+    private func installPremiumTitleBrand(in window: NSWindow) {
+        let alreadyInstalled = window.titlebarAccessoryViewControllers.contains {
+            $0.view.identifier?.rawValue == WoWCCTitlebarAccessoryController.identifierString
+        }
+        guard !alreadyInstalled else { return }
+
+        let controller = WoWCCTitlebarAccessoryController()
+        controller.layoutAttribute = .left
+
+        let brand = WoWCCWindowTitleBrand(icon: NSApp.applicationIconImage)
+        let hostingView = NSHostingView(rootView: brand)
+        hostingView.identifier = NSUserInterfaceItemIdentifier(WoWCCTitlebarAccessoryController.identifierString)
+        hostingView.frame = NSRect(x: 0, y: 0, width: 235, height: 38)
+        controller.view = hostingView
+
+        window.addTitlebarAccessoryViewController(controller)
     }
 }
