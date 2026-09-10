@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - '.tools/apply_v1579.py'
+      - '.tools/fix_v1579_compile.py'
       - '.github/workflows/run-v1579.yml'
 
 permissions:
@@ -15,7 +16,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Apply patch
-        run: python3 .tools/apply_v1579.py
+        run: |
+          python3 .tools/apply_v1579.py
+          python3 .tools/fix_v1579_compile.py
       - name: Validate shell
         run: |
           bash -n Build.command
