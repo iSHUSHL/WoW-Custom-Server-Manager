@@ -1,0 +1,44 @@
+name: WotLK VMap v1591
+
+on:
+  push:
+    paths:
+      - 'Scripts/apply-v1591-wotlk-vmap-cleanup.py'
+      - '.github/workflows/wotlk-vmap-v1591.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-build-package:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply WotLK VMap cleanup
+        run: python3 Scripts/apply-v1591-wotlk-vmap-cleanup.py
+      - name: Remove temporary patch files
+        run: rm -f Scripts/apply-v1591-wotlk-vmap-cleanup.py .github/workflows/wotlk-vmap-v1591.yml
+      - name: Validate scripts and app
+        run: |
+          bash -n Scripts/prepare-client.sh
+          bash -n Build.command
+          swift build -c release
+      - name: Commit validated changes
+        run: |
+          git config user.name 'WoWCC Builder'
+          git config user.email 'actions@github.com'
+          git add -A
+          git commit -m 'Fix WotLK VMap retry cleanup and packaging (1.5.91)'
+          git push origin main
+      - name: Stage source folder
+        run: |
+          rm -rf /tmp/WoWServerControlCenter-1.5.91
+          mkdir -p /tmp/WoWServerControlCenter-1.5.91
+          git checkout-index -a -f --prefix=/tmp/WoWServerControlCenter-1.5.91/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WoWServerControlCenter-1.5.91-WotLKVMapCleanup-ONE-ZIP
+          path: /tmp/WoWServerControlCenter-1.5.91
+          include-hidden-files: true
