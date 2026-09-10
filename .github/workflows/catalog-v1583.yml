@@ -1,5 +1,6 @@
 name: Catalog Recovery v1583
 
+# retry after correcting the community DB patch marker
 on:
   push:
     paths:
