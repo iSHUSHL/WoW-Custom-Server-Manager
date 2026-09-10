@@ -1,0 +1,15 @@
+.DS_Store
+Build/
+.build/
+DerivedData/
+*.app
+*.dSYM
+*.log
+__pycache__/
+*.pyc
+runtime/
+.wowcc/
+*.sql.gz
+*.bak
+.env
+.env.*
