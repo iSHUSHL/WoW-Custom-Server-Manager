@@ -1,3 +1,12 @@
+# v1.5.79 — Blizzard-Style Tooltips + Resilient Era Icons
+
+- Reworks item hover cards into a Blizzard/WoW-style visual hierarchy with quality-colored title, green Equip/Use/Set effects, red requirements, flavor text and scroll-safe long cards.
+- Hybrid tooltip data: local realm item_template appears immediately; era-correct Wowhead XML enriches spell/set/effect text when available.
+- Adds era-specific icon lookup cascades for Vanilla, TBC, WotLK, Cataclysm and MoP plus generic fallback.
+- Missing icons are retryable instead of becoming permanently dead after one transient network failure.
+- Adds an always-visible Reload Missing Icons action and keeps persistent local icon caching.
+- Keeps the 1.5.77 TBC full-world-catalog repair and 1.5.78 Repair Realm UI.
+
 # v1.5.78 — Full Tooltips + Visible Realm Repair
 
 - Permanent Repair Realm button in the top bar.

@@ -847,11 +847,12 @@ struct ContentView: View {
                 }
 
                 if !model.failedIconIDs.isEmpty {
-                    Text("\(model.failedIconIDs.count) icon(s) unavailable")
+                    Text("\(model.failedIconIDs.count) icon(s) need retry")
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
-                    Button("Retry Icons") { model.retryFailedIcons() }
                 }
+                Button("Reload Missing Icons") { model.retryFailedIcons() }
+                    .help("Retry every missing icon on the current catalog page using era-specific sources and local cache.")
 
                 Spacer()
                 if model.catalogPage > 0 {
@@ -1368,12 +1369,10 @@ private final class WoWTooltipPanel {
         guard let host=hostingView, let panel else { return }
 
         let width: CGFloat = 470
-        host.frame = NSRect(x:0,y:0,width:width,height:2000)
-        host.layoutSubtreeIfNeeded()
-        let fitting = host.fittingSize
-        let screenLimit = max(260, (NSScreen.main?.visibleFrame.height ?? 900) - 48)
-        let height = min(max(fitting.height, 110), screenLimit)
-
+        let lineCount = max(4, hostingView?.rootView.text.components(separatedBy:"\n").count ?? 4)
+        let estimated = CGFloat(lineCount * 18 + 66)
+        let screenLimit = max(300, (NSScreen.main?.visibleFrame.height ?? 900) - 48)
+        let height = min(max(estimated, 140), screenLimit)
         panel.setContentSize(NSSize(width:width,height:height))
         host.frame = NSRect(x:0,y:0,width:width,height:height)
     }
@@ -1430,14 +1429,22 @@ private struct WoWTooltipPanelView: View {
                 }
             }
 
-            Text(text)
-                .font(.system(size:12,weight:.medium,design:.default))
-                .foregroundStyle(.white)
-                .textSelection(.enabled)
-                .lineLimit(nil)
-                .multilineTextAlignment(.leading)
+            ScrollView {
+                VStack(alignment:.leading,spacing:3) {
+                    ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+                        Text(line.isEmpty ? " " : line)
+                            .font(lineFont(index:index,line:line))
+                            .foregroundStyle(lineColor(index:index,line:line))
+                            .lineLimit(nil)
+                            .multilineTextAlignment(.leading)
+                            .frame(maxWidth:.infinity,alignment:.leading)
+                            .fixedSize(horizontal:false,vertical:true)
+                    }
+                }
                 .frame(maxWidth:.infinity,alignment:.leading)
-                .fixedSize(horizontal:false,vertical:true)
+                .textSelection(.enabled)
+            }
+            .scrollIndicators(.automatic)
         }
         .padding(13)
         .frame(width:470,alignment:.leading)
@@ -1449,6 +1456,25 @@ private struct WoWTooltipPanelView: View {
                         .stroke(qualityColor.opacity(0.85),lineWidth:1)
                 )
         )
+    }
+
+    private var lines: [String] { text.components(separatedBy:"\n") }
+
+    private func lineFont(index:Int,line:String) -> Font {
+        if index == 0 { return .system(size:15,weight:.bold) }
+        if line.hasPrefix("Item Level") { return .system(size:11,weight:.medium) }
+        if line.contains("Set:") || line.hasPrefix("Equip:") || line.hasPrefix("Use:") || line.hasPrefix("Chance on hit:") { return .system(size:12,weight:.medium) }
+        return .system(size:12,weight:.medium)
+    }
+
+    private func lineColor(index:Int,line:String) -> Color {
+        if index == 0 { return qualityColor }
+        let lower=line.lowercased()
+        if line.hasPrefix("Equip:") || line.hasPrefix("Use:") || line.hasPrefix("Chance on hit:") || line.contains("Set:") { return .green }
+        if line.hasPrefix("Requires ") { return .red }
+        if line.hasPrefix("Item Level") || line.hasPrefix("Item #") || lower.contains("item #") { return Color.white.opacity(0.72) }
+        if line.first == Character("\"") && line.last == Character("\"") { return .yellow }
+        return .white
     }
 
     private var qualityColor: Color {

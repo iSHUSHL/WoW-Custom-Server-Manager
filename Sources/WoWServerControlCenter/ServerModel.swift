@@ -1551,6 +1551,7 @@ final class ServerModel: ObservableObject {
         let itemLevel = item.itemLevel
         let itemSetID = item.itemSetID
         let expansionTitle = selectedExpansion.shortTitle
+        let expansion = selectedExpansion
         let database = worldDatabaseName
         let port = mysqlPort
         guard let mysqlExecutable = locateMySQL("mysql") else {
@@ -1622,12 +1623,76 @@ final class ServerModel: ObservableObject {
                 let sell=intValue("sellprice"); if sell>0{lines.append("Sell Price: \(money(sell))")}
                 if let desc=value("description"), !desc.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty{lines.append("");lines.append("\"\(desc)\"")}
                 if !itemSubtitle.isEmpty{lines.append("");lines.append(itemSubtitle)}
-                let text=lines.joined(separator:"\n")
-                DispatchQueue.main.async { self.itemTooltipTexts[id]=text; self.tooltipLoadingIDs.remove(id); self.failedTooltipIDs.remove(id) }
+                let localText=lines.joined(separator:"\n")
+                DispatchQueue.main.async { self.itemTooltipTexts[id]=localText }
+
+                var enriched: String?
+                for endpoint in Self.wowheadXMLCandidates(expansion: expansion, itemID: id) {
+                    guard let xml=Self.fetchText(endpoint,timeout:7) else { continue }
+                    if let parsed=Self.extractHTMLTooltip(xml), !parsed.isEmpty {
+                        enriched=parsed
+                        break
+                    }
+                }
+                DispatchQueue.main.async {
+                    if let enriched { self.itemTooltipTexts[id]=enriched }
+                    self.tooltipLoadingIDs.remove(id)
+                    self.failedTooltipIDs.remove(id)
+                }
             } catch {
                 DispatchQueue.main.async { self.itemTooltipTexts[id]=[itemName,itemQuality,itemSubtitle,"Item ID \(id)","Detailed local tooltip unavailable: \(error.localizedDescription)"].joined(separator:"\n"); self.tooltipLoadingIDs.remove(id); self.failedTooltipIDs.insert(id) }
             }
         }
+    }
+
+    nonisolated private static func wowheadXMLCandidates(expansion: ExpansionID, itemID: Int) -> [String] {
+        let base="https://www.wowhead.com"
+        let era:[String]
+        switch expansion {
+        case .vanilla: era=["classic"]
+        case .tbc: era=["tbc"]
+        case .wotlk: era=["wotlk"]
+        case .cataclysm: era=["cata"]
+        case .mop: era=["mop-classic","mop"]
+        default: era=[]
+        }
+        var urls=era.map { "\(base)/\($0)/item=\(itemID)&xml" }
+        urls.append("\(base)/item=\(itemID)&xml")
+        return urls
+    }
+
+    nonisolated private static func fetchText(_ endpoint:String, timeout:TimeInterval) -> String? {
+        guard let url=URL(string:endpoint) else { return nil }
+        var req=URLRequest(url:url)
+        req.timeoutInterval=timeout
+        req.cachePolicy = .returnCacheDataElseLoad
+        req.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X) WoWServerControlCenter/1.5.79",forHTTPHeaderField:"User-Agent")
+        req.setValue("application/xml,text/xml;q=0.9,text/html;q=0.8,*/*;q=0.7",forHTTPHeaderField:"Accept")
+        let sem=DispatchSemaphore(value:0)
+        final class Box: @unchecked Sendable { var data:Data?; var status:Int=0 }
+        let box=Box()
+        URLSession.shared.dataTask(with:req) { data,response,_ in
+            box.data=data
+            box.status=(response as? HTTPURLResponse)?.statusCode ?? 0
+            sem.signal()
+        }.resume()
+        guard sem.wait(timeout:.now()+timeout+1) == .success,
+              (200..<300).contains(box.status), let data=box.data else { return nil }
+        return String(data:data,encoding:.utf8)
+    }
+
+    nonisolated private static func extractHTMLTooltip(_ xml:String) -> String? {
+        guard let a=xml.range(of:"<htmlTooltip>"), let b=xml.range(of:"</htmlTooltip>",range:a.upperBound..<xml.endIndex) else { return nil }
+        var html=String(xml[a.upperBound..<b.lowerBound])
+        html=html.replacingOccurrences(of:"<![CDATA[",with:"").replacingOccurrences(of:"]]>",with:"")
+        for br in ["<br />","<br/>","<br>","</tr>","</table>","</div>","</p>"] { html=html.replacingOccurrences(of:br,with:"\n",options:.caseInsensitive) }
+        html=html.replacingOccurrences(of:"</td>",with:"    ",options:.caseInsensitive)
+        html=html.replacingOccurrences(of:"</th>",with:"    ",options:.caseInsensitive)
+        html=html.replacingOccurrences(of:"<[^>]+>",with:"",options:.regularExpression)
+        for (e,v) in ["&nbsp;":" ","&#160;":" ","&amp;":"&","&lt;":"<","&gt;":">","&quot;":"\"","&#39;":"'"] { html=html.replacingOccurrences(of:e,with:v) }
+        html=html.replacingOccurrences(of:"[ \\t]+\\n",with:"\n",options:.regularExpression)
+        html=html.replacingOccurrences(of:"\\n{3,}",with:"\n\n",options:.regularExpression)
+        return html.trimmingCharacters(in:.whitespacesAndNewlines)
     }
 
     func iconURL(for item: CatalogEntry) -> URL? {
@@ -1650,7 +1715,7 @@ final class ServerModel: ObservableObject {
         for item in serverCatalog.prefix(catalogPageSize) {
             if item.iconURL == nil,
                itemIconURLs[item.id] == nil,
-               !failedIconIDs.contains(item.id) {
+               !iconLoadingIDs.contains(item.id) {
                 resolveItemIcon(itemID:item.id)
             }
         }
@@ -1672,8 +1737,6 @@ final class ServerModel: ObservableObject {
         guard itemID > 0 else { return }
         guard itemIconURLs[itemID] == nil else { return }
         guard !iconLoadingIDs.contains(itemID) else { return }
-        guard !failedIconIDs.contains(itemID) else { return }
-
         let local=itemIconCacheRoot.appendingPathComponent("\(itemID).jpg")
         if FileManager.default.fileExists(atPath:local.path) {
             itemIconURLs[itemID]=local
@@ -1694,38 +1757,14 @@ final class ServerModel: ObservableObject {
                 }
             }
 
-            let endpoint: String
-            switch expansion {
-            case .tbc: endpoint="https://www.wowhead.com/tbc/item=\(itemID)&xml"
-            case .wotlk: endpoint="https://www.wowhead.com/wotlk/item=\(itemID)&xml"
-            default: endpoint="https://www.wowhead.com/item=\(itemID)&xml"
+            var resolvedXML: String?
+            for endpoint in Self.wowheadXMLCandidates(expansion: expansion, itemID: itemID) {
+                if let candidate = Self.fetchText(endpoint, timeout: 7), candidate.contains("<item") {
+                    resolvedXML = candidate
+                    break
+                }
             }
-
-            guard let xmlURL=URL(string:endpoint) else { finishFailure(); return }
-
-            var req=URLRequest(url:xmlURL)
-            req.timeoutInterval=7
-            req.cachePolicy = .returnCacheDataElseLoad
-            req.setValue("WoWServerControlCenter/1.5",forHTTPHeaderField:"User-Agent")
-            req.setValue("application/xml,text/xml;q=0.9,*/*;q=0.8",forHTTPHeaderField:"Accept")
-
-            let sem=DispatchSemaphore(value:0)
-            var xmlData:Data?
-            var status=0
-            URLSession.shared.dataTask(with:req) { data,response,_ in
-                xmlData=data
-                status=(response as? HTTPURLResponse)?.statusCode ?? 0
-                sem.signal()
-            }.resume()
-
-            guard sem.wait(timeout:.now()+8) == .success,
-                  (200..<300).contains(status),
-                  let data=xmlData,
-                  let xml=String(data:data,encoding:.utf8),
-                  xml.contains("<item") else {
-                finishFailure()
-                return
-            }
+            guard let xml = resolvedXML else { finishFailure(); return }
 
             guard let a=xml.range(of:"<icon"),
                   let gt=xml.range(of:">",range:a.lowerBound..<xml.endIndex),
