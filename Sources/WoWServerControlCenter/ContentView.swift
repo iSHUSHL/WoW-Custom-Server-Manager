@@ -658,7 +658,7 @@ struct ContentView: View {
 
                 Picker("Class",selection:$model.gearSetClassFilter) {
                     ForEach(PlayerClassFilter.allCases.filter { cls in
-                        model.selectedExpansion != .tbc || cls != .deathKnight
+                        (model.selectedExpansion != .tbc && model.selectedExpansion != .vanilla) || cls != .deathKnight
                     }) { Text($0.rawValue).tag($0) }
                 }
                 .frame(width:160)
@@ -740,7 +740,7 @@ struct ContentView: View {
                     Text(mountOnly ? "Mount Collection" : "Complete Item Collection").font(.largeTitle.bold())
                     Text(mountOnly
                          ? "All mount teaching items found in the selected realm database."
-                         : "Browse the complete TBC / WotLK realm catalog: raid sets, weapons, armor, legendaries, BiS/endgame and all items.")
+                         : "Browse every collection in the selected expansion database — raid sets, weapons, armor, legendaries, BiS/endgame, bags, mounts and every item.")
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -760,13 +760,19 @@ struct ContentView: View {
 
             if !mountOnly {
                 Picker("Collection",selection:$model.catalogKind) {
-                    ForEach(CatalogKind.allCases.filter{$0 != .mount && $0 != .bag}) {
+                    ForEach(CatalogKind.allCases) {
                         Text($0.rawValue).tag($0)
                     }
                 }
-                .pickerStyle(.segmented)
+                .pickerStyle(.menu)
+                .frame(width: 220, alignment: .leading)
                 .onChange(of:model.catalogKind) { _ in
-                    model.clearServerCatalog()
+                    model.catalogSelectionChanged()
+                }
+                .onAppear {
+                    if model.serverCatalog.isEmpty && !model.catalogLoading {
+                        model.loadCatalogPage(reset: true)
+                    }
                 }
             } else {
                 Color.clear.frame(height:0).onAppear {
@@ -782,7 +788,7 @@ struct ContentView: View {
                     if !mountOnly {
                         Picker("Class",selection:$model.playerClassFilter) {
                             ForEach(PlayerClassFilter.allCases.filter { cls in
-                                model.selectedExpansion != .tbc || cls != .deathKnight
+                                (model.selectedExpansion != .tbc && model.selectedExpansion != .vanilla) || cls != .deathKnight
                             }) { Text($0.rawValue).tag($0) }
                         }
                         .frame(width:145)

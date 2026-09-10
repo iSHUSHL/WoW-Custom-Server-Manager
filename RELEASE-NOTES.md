@@ -1,3 +1,15 @@
+# v1.5.68 — Complete Expansion Collection Browser
+
+- Collection Browser now exposes every existing collection type, including Bags and Mounts.
+- Switching collections automatically loads the selected collection instead of clearing the grid and waiting for another click.
+- All Items is database-backed and exposes the complete `item_template` catalog for the selected expansion through paging.
+- Every page now reports its real total count, so no items are silently hidden behind the first 250 rows.
+- Legendaries query the realm database directly with `Quality = 5`, including all TBC legendary entries present in the installed TBC database.
+- The same database-backed path is used for Vanilla, TBC, WotLK, Cataclysm, and Mists of Pandaria profiles.
+- Changing expansions clears stale filters/catalog state before the new expansion is loaded.
+- Death Knight filtering is no longer offered for Vanilla or TBC.
+- Existing premium UI, Dock icon/title branding, server controls, PlayerBots, logs, and gameplay fixes remain intact.
+
 # v1.5.65 — PlayerBots Creation Speed Control
 
 Adds a PlayerBots **Creation speed** selector directly in the WoWCC UI:

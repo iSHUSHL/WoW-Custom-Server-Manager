@@ -82,7 +82,7 @@ final class ServerModel: ObservableObject {
     @Published var creatorGender = "Male"
     @Published var inventory: [InventoryEntry] = []
     @Published var serverCatalog: [CatalogEntry] = []
-    @Published var catalogStatus = "Built-in curated catalog"
+    @Published var catalogStatus = "Choose a collection to load every matching item from the selected realm database"
     @Published var catalogLoading = false
     @Published var catalogPage = 0
     @Published var catalogHasMore = false
@@ -1908,12 +1908,13 @@ final class ServerModel: ObservableObject {
         let port = mysqlPort
         let whereClause = catalogWhereClause(kind: kind, search: q)
         let offset = page * pageSize
+        let countSQL = "SELECT COUNT(*) FROM item_template WHERE \(whereClause);"
         let sql = """
         SELECT entry,name,Quality,class,subclass,InventoryType,ItemLevel,itemset,AllowableClass
         FROM item_template
         WHERE \(whereClause)
         ORDER BY ItemLevel DESC, Quality DESC, name, entry
-        LIMIT \(pageSize + 1) OFFSET \(offset);
+        LIMIT \(pageSize) OFFSET \(offset);
         """
 
         catalogLoading = true
@@ -1922,8 +1923,10 @@ final class ServerModel: ObservableObject {
         DispatchQueue.global(qos: .userInitiated).async {
             do {
                 let client = DatabaseClient(executable: mysqlExecutable, port: port)
+                let totalRaw = try client.query(database: db, sql: countSQL)
+                let total = Int(totalRaw.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
                 let raw = try client.query(database: db, sql: sql)
-                var parsed: [CatalogEntry] = raw.split(separator:"\n").compactMap { line in
+                let parsed: [CatalogEntry] = raw.split(separator:"\n").compactMap { line in
                     let f=line.split(separator:"\t",omittingEmptySubsequences:false)
                     guard f.count >= 9, let id=Int(f[0]) else { return nil }
                     let quality=Int(f[2]) ?? 1
@@ -1954,8 +1957,7 @@ final class ServerModel: ObservableObject {
                         allowableClass:allowableClass
                     )
                 }
-                let hasMore = parsed.count > pageSize
-                if hasMore { parsed.removeLast(parsed.count - pageSize) }
+                let hasMore = offset + parsed.count < total
 
                 DispatchQueue.main.async {
                     self.serverCatalog = parsed
@@ -1966,8 +1968,8 @@ final class ServerModel: ObservableObject {
                     let first = parsed.isEmpty ? 0 : offset + 1
                     let last = offset + parsed.count
                     self.catalogStatus = parsed.isEmpty
-                        ? "No \(kind.rawValue) found on page \(page + 1)"
-                        : "\(kind.rawValue): showing \(first)–\(last) from the realm DB"
+                        ? "No \(kind.rawValue) found in \(self.selectedExpansion.title)"
+                        : "\(kind.rawValue): showing \(first)–\(last) of \(total) from \(self.selectedExpansion.title) realm DB"
                     self.statusMessage = self.catalogStatus
                 }
             } catch {
@@ -2030,6 +2032,25 @@ final class ServerModel: ObservableObject {
         catalogStatus = "Filters reset"
     }
 
+    func catalogSelectionChanged() {
+        cancelPendingIconLoads()
+        tooltipQueue.cancelAllOperations()
+        tooltipLoadingIDs.removeAll()
+        catalogPage = 0
+        catalogHasMore = false
+        serverCatalog = []
+
+        // Mount rows are inventory-less teaching items; class/slot/iLvl filters
+        // from another collection must never hide them by accident.
+        if catalogKind == .mount {
+            equipSlotFilter = .all
+            playerClassFilter = .all
+            minimumItemLevel = ""
+        }
+
+        loadCatalogPage(reset: true)
+    }
+
     func searchServerCatalog() { loadCatalogPage(reset: true) }
     func loadAllCurrentCategory() { loadCatalogPage(reset: true) }
     func nextCatalogPage() { guard catalogHasMore else { return }; loadCatalogPage(pageDelta: 1) }
@@ -2042,7 +2063,7 @@ final class ServerModel: ObservableObject {
         serverCatalog = []
         catalogPage = 0
         catalogHasMore = false
-        catalogStatus = "Built-in curated catalog"
+        catalogStatus = "Choose a collection and click Load"
     }
 
 
