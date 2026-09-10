@@ -1,3 +1,11 @@
+# v1.5.69 — Expansion-Isolated Complete Collections
+
+- Vanilla, TBC, WotLK, Cataclysm and MoP collections are isolated by item era so cumulative later DBs do not mix older-expansion items into the selected expansion.
+- Switching expansion automatically selects All Items and loads that expansion catalog plus its gear sets.
+- All Items, Legendaries, weapons, armor, raid sets, bags, mounts and BiS/endgame use the same expansion boundary.
+- Changing collection resets hidden filters so complete collections are not silently reduced.
+- Gear Sets uses the same expansion-only boundary.
+
 # v1.5.68 — Complete Expansion Collection Browser
 
 - Collection Browser now exposes every existing collection type, including Bags and Mounts.

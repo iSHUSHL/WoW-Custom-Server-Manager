@@ -740,7 +740,7 @@ struct ContentView: View {
                     Text(mountOnly ? "Mount Collection" : "Complete Item Collection").font(.largeTitle.bold())
                     Text(mountOnly
                          ? "All mount teaching items found in the selected realm database."
-                         : "Browse every collection in the selected expansion database — raid sets, weapons, armor, legendaries, BiS/endgame, bags, mounts and every item.")
+                         : "Era-isolated catalog: only items introduced in the selected expansion are shown. Switching expansion automatically loads that expansion.")
                         .foregroundStyle(.secondary)
                 }
                 Spacer()

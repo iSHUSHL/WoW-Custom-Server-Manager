@@ -16,6 +16,11 @@ final class ServerModel: ObservableObject {
             resetCollectionStateForExpansionChange()
             rebuildProcesses()
             refresh()
+            DispatchQueue.main.async {
+                self.catalogKind = .all
+                self.loadCatalogPage(reset: true)
+                self.loadGearSets()
+            }
         }
     }
     @Published var mysqlRunning = false
@@ -1785,12 +1790,23 @@ final class ServerModel: ObservableObject {
     }
 
 
+    private var expansionItemEntryClause: String {
+        switch selectedExpansion {
+        case .vanilla: return "entry BETWEEN 1 AND 24282"
+        case .tbc: return "entry BETWEEN 24283 AND 35599"
+        case .wotlk: return "entry BETWEEN 35600 AND 56805"
+        case .cataclysm: return "entry BETWEEN 56806 AND 79999"
+        case .mop: return "entry BETWEEN 80000 AND 109999"
+        default: return "1=1"
+        }
+    }
+
     private func catalogWhereClause(kind: CatalogKind, search: String) -> String {
         let escaped = search
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "'", with: "\\'")
 
-        var clauses: [String] = ["1=1"]
+        var clauses: [String] = [expansionItemEntryClause]
 
         switch kind {
         case .raidSet:
@@ -2040,13 +2056,11 @@ final class ServerModel: ObservableObject {
         catalogHasMore = false
         serverCatalog = []
 
-        // Mount rows are inventory-less teaching items; class/slot/iLvl filters
-        // from another collection must never hide them by accident.
-        if catalogKind == .mount {
-            equipSlotFilter = .all
-            playerClassFilter = .all
-            minimumItemLevel = ""
-        }
+        searchText = ""
+        itemQualityFilter = .all
+        equipSlotFilter = .all
+        playerClassFilter = .all
+        minimumItemLevel = ""
 
         loadCatalogPage(reset: true)
     }
@@ -2096,6 +2110,7 @@ final class ServerModel: ObservableObject {
         let db = worldDatabaseName
         let port = mysqlPort
         let expansion = selectedExpansion
+        let expansionClause = expansionItemEntryClause
 
         gearSetsLoading = true
         gearSetStatus = "Loading realm item sets…"
@@ -2111,7 +2126,7 @@ final class ServerModel: ObservableObject {
                 let sql = """
                 SELECT entry,name,Quality,class,subclass,InventoryType,ItemLevel,itemset,AllowableClass
                 FROM item_template
-                WHERE itemset > 0
+                WHERE itemset > 0 AND \(expansionClause)
                 ORDER BY itemset,InventoryType,ItemLevel DESC,entry;
                 """
 

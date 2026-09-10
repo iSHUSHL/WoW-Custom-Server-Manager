@@ -2,36 +2,18 @@ import Foundation
 
 enum BuiltInCatalog {
     static func entries(for expansion: ExpansionID) -> [CatalogEntry] {
-        var result: [CatalogEntry] = [
-            item(19019, "Thunderfury, Blessed Blade of the Windseeker", .legendary, "One-Hand Sword", "inv_sword_39"),
-            item(17182, "Sulfuras, Hand of Ragnaros", .legendary, "Two-Hand Mace", "inv_hammer_unique_sulfuras"),
-            item(14156, "Bottomless Bag", .bag, "18 Slot Bag", "inv_misc_bag_13", quality: "Epic"),
-            item(18803, "Finkle's Lava Dredger", .weapon, "Two-Hand Mace", "inv_hammer_09", quality: "Epic"),
-            item(16955, "Judgement Crown", .armor, "Paladin Tier 2 Head", "inv_helmet_74", quality: "Epic")
-        ]
-        if expansion != .vanilla {
-            result += [
-                item(32837, "Warglaive of Azzinoth", .legendary, "Main Hand Sword", "inv_weapon_glave_01"),
-                item(32838, "Warglaive of Azzinoth", .legendary, "Off Hand Sword", "inv_weapon_glave_01"),
-                item(34334, "Thori'dal, the Stars' Fury", .legendary, "Bow", "inv_weapon_bow_39")
-            ]
+        switch expansion {
+        case .vanilla: return [item(19019, "Thunderfury, Blessed Blade of the Windseeker", .legendary, "One-Hand Sword", "inv_sword_39"), item(17182, "Sulfuras, Hand of Ragnaros", .legendary, "Two-Hand Mace", "inv_hammer_unique_sulfuras")]
+        case .tbc: return [item(32837, "Warglaive of Azzinoth", .legendary, "Main Hand Sword", "inv_weapon_glave_01"), item(32838, "Warglaive of Azzinoth", .legendary, "Off Hand Sword", "inv_weapon_glave_01"), item(34334, "Thori'dal, the Stars' Fury", .legendary, "Bow", "inv_weapon_bow_39")]
+        case .wotlk: return [item(49623, "Shadowmourne", .legendary, "Two-Hand Axe", "inv_axe_113"), item(46017, "Val'anyr, Hammer of Ancient Kings", .legendary, "One-Hand Mace", "inv_mace_99")]
+        case .cataclysm: return [item(71086, "Dragonwrath, Tarecgosa's Rest", .legendary, "Staff", "inv_staff_39"), item(77949, "Golad, Twilight of Aspects", .legendary, "Dagger", "inv_knife_1h_deathwingraid_d_01")]
+        case .mop: return [item(102245, "Qian-Le, Courage of Niuzao", .legendary, "Legendary Cloak", "inv_cape_pandaria_d_03")]
+        default: return []
         }
-        if expansion == .wotlk || expansion.maturity != .supported {
-            result += [
-                item(49623, "Shadowmourne", .legendary, "Two-Hand Axe", "inv_axe_113"),
-                item(46017, "Val'anyr, Hammer of Ancient Kings", .legendary, "One-Hand Mace", "inv_mace_99"),
-                item(41599, "Frostweave Bag", .bag, "20 Slot Bag", "inv_misc_bag_10_blue", quality: "Rare"),
-                item(50362, "Deathbringer's Will", .armor, "Trinket", "inv_jewelry_trinketpvp_02", quality: "Epic"),
-                mount("Invincible", 72286, "ability_mount_pegasus"),
-                mount("Ashes of Al'ar", 40192, "inv_misc_summerfest_brazierorange"),
-                mount("Mimiron's Head", 63796, "ability_mount_mimironhead")
-            ]
-        }
-        return result
     }
 
     static func iconForKnownItem(_ id: Int) -> URL? {
-        entries(for: .wotlk).first(where: { $0.id == id })?.iconURL
+        [ExpansionID.vanilla,.tbc,.wotlk,.cataclysm,.mop].flatMap { entries(for: $0) }.first(where: { $0.id == id })?.iconURL
     }
 
     private static func item(_ id: Int, _ name: String, _ kind: CatalogKind, _ subtitle: String, _ icon: String, quality: String = "Legendary") -> CatalogEntry {

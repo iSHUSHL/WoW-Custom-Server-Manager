@@ -72,8 +72,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleName</key><string>WoW Server Control Center</string>
   <key>CFBundleDisplayName</key><string>WoW Server Control Center</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>1.5.68</string>
-  <key>CFBundleVersion</key><string>1568</string>
+  <key>CFBundleShortVersionString</key><string>1.5.69</string>
+  <key>CFBundleVersion</key><string>1569</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSPrincipalClass</key><string>NSApplication</string>
