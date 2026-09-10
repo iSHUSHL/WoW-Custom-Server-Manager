@@ -1,0 +1,42 @@
+name: WotLK Extractor v1587
+
+on:
+  push:
+    paths:
+      - 'tools/apply_v1587_wotlk_extractors.py'
+      - '.github/workflows/wotlk-extractor-v1587.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-build-package:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply WotLK extractor repair
+        run: python3 tools/apply_v1587_wotlk_extractors.py
+      - name: Remove temporary patch files
+        run: rm -f tools/apply_v1587_wotlk_extractors.py .github/workflows/wotlk-extractor-v1587.yml
+      - name: Validate scripts and app
+        run: |
+          bash -n Scripts/install-profile.sh
+          bash -n Scripts/prepare-client.sh
+          bash -n Build.command
+          swift build -c release
+      - name: Commit validated changes
+        run: |
+          git config user.name 'Igor Baran'
+          git config user.email 'igorbaran@gmail.com'
+          git add -A
+          git commit -m 'Fix WotLK extractor recovery (1.5.87)'
+          git push origin main
+      - name: Package source
+        run: git archive --format=zip --output=WoWServerControlCenter-1.5.87-WotLKExtractorFix.zip HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WoWServerControlCenter-1.5.87-WotLKExtractorFix
+          path: WoWServerControlCenter-1.5.87-WotLKExtractorFix.zip
+          retention-days: 90
