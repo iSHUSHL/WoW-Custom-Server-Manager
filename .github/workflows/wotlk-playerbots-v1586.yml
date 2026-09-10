@@ -1,0 +1,60 @@
+name: WotLK PlayerBots v1586
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'tools/apply_v1586_wotlk_playerbots.py'
+      - '.github/workflows/wotlk-playerbots-v1586.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-build-package:
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply WotLK PlayerBots patch
+        run: python3 tools/apply_v1586_wotlk_playerbots.py
+
+      - name: Remove temporary patch files
+        run: |
+          rm -f tools/apply_v1586_wotlk_playerbots.py
+          rm -f .github/workflows/wotlk-playerbots-v1586.yml
+
+      - name: Validate scripts and app
+        run: |
+          chmod +x Scripts/setup-playerbots-wotlk.sh
+          bash -n Build.command
+          bash -n Verify.command
+          find Scripts -type f -name '*.sh' -print0 | xargs -0 -n1 bash -n
+          python3 -m py_compile Scripts/*.py
+          grep -q '10...5000' Sources/WoWServerControlCenter/ContentView.swift
+          grep -q 'mod-playerbots/azerothcore-wotlk.git' Scripts/install-profile.sh
+          grep -q 'playerbots rndbot init' Sources/WoWServerControlCenter/ServerModel.swift
+          grep -q 'acore_playerbots' Scripts/setup-playerbots-wotlk.sh
+          swift build -c release
+
+      - name: Commit validated changes
+        run: |
+          git config user.name 'Igor Baran'
+          git config user.email 'igorbaran@gmail.com'
+          git add -A
+          git commit -m 'Add WotLK PlayerBots up to 5000 bots (1.5.86)'
+          git push origin main
+
+      - name: Package source
+        run: |
+          git archive --format=zip --output="$RUNNER_TEMP/WoWServerControlCenter-1.5.86-WotLKPlayerBots.zip" HEAD
+          shasum -a 256 "$RUNNER_TEMP/WoWServerControlCenter-1.5.86-WotLKPlayerBots.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WoWServerControlCenter-1.5.86-WotLKPlayerBots
+          path: ${{ runner.temp }}/WoWServerControlCenter-1.5.86-WotLKPlayerBots.zip
+          retention-days: 90
