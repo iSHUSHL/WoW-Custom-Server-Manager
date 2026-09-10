@@ -1,0 +1,48 @@
+name: Apply Collection Autoload Fallback
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/apply-collection-autoload-fallback.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch autoload behavior
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          sm=Path('Sources/WoWServerControlCenter/ServerModel.swift')
+          s=sm.read_text()
+          old='''    func loadCatalogPage(reset: Bool = false, pageDelta: Int = 0) {\n        // Do not gate database-backed collections on the cached UI status.\n        // The actual MySQL query below is authoritative and runs off the UI\n        // thread. This keeps navigation fast while still allowing an already\n        // running managed MySQL instance to serve the catalog after app reopen.\n        if reset { catalogPage = 0 }\n'''
+          new='''    func loadCatalogPage(reset: Bool = false, pageDelta: Int = 0) {\n        guard !catalogLoading else { return }\n\n        if !portOpen(Int32(mysqlPort)) {\n            catalogLoading = true\n            catalogStatus = "Starting \\(selectedExpansion.shortTitle) database for collections…"\n            Task {\n                do {\n                    try await startMySQL()\n                    try configureDatabaseAccess()\n                    mysqlRunning = true\n                    catalogLoading = false\n                    loadCatalogPage(reset: reset, pageDelta: pageDelta)\n                } catch {\n                    catalogLoading = false\n                    serverCatalog = BuiltInCatalog.entries(for: selectedExpansion)\n                    catalogHasMore = false\n                    catalogStatus = "Realm DB unavailable — showing same-expansion examples only. \\(error.localizedDescription)"\n                    statusMessage = catalogStatus\n                }\n            }\n            return\n        }\n\n        if reset { catalogPage = 0 }\n'''
+          if old not in s:
+              raise SystemExit('loadCatalogPage header not found')
+          s=s.replace(old,new,1)
+          s=s.replace('''            } catch {\n                DispatchQueue.main.async {\n                    self.catalogLoading = false\n                    self.catalogStatus = "Catalog DB: \\(error.localizedDescription)"\n                    self.statusMessage = self.catalogStatus\n                }\n            }\n''','''            } catch {\n                DispatchQueue.main.async {\n                    self.catalogLoading = false\n                    self.serverCatalog = BuiltInCatalog.entries(for: self.selectedExpansion)\n                    self.catalogHasMore = false\n                    self.catalogStatus = "Could not read selected realm DB — showing same-expansion examples only. \\(error.localizedDescription)"\n                    self.statusMessage = self.catalogStatus\n                }\n            }\n''',1)
+          sm.write_text(s)
+          PY
+          bash -n Build.command
+          bash -n Verify.command
+          find Scripts -type f -name '*.sh' -print0 | xargs -0 -n1 bash -n
+          python3 -m py_compile Scripts/*.py
+
+      - name: Commit repair
+        run: |
+          rm .github/workflows/apply-collection-autoload-fallback.yml
+          rm -f .github/workflows/apply-collection-browser-exhaustive-fix.yml
+          git config user.name "WoWCC Automation"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "Auto-load selected expansion collections without blank screens"
+          git push
