@@ -1,3 +1,10 @@
+# v1.5.77 — TBC Full World Catalog Repair
+
+- Fixes TBC Collections showing only a few items when a partial `mangos.item_template` had been incorrectly accepted as a ready realm.
+- TBC Setup/Repair validates actual item, Epic, Legendary and Mount row counts.
+- An incomplete TBC world catalog automatically rebuilds only `mangos` from official `cmangos/tbc-db`; accounts and characters are preserved.
+- The realm is not marked ready if the repaired catalog still fails validation.
+
 # v1.5.76 — Clean ZIP / Missing Runtime Build Fix
 
 - Fixes `Build.command` failing after a successful Swift compile when the source package has no top-level `runtime/` directory.

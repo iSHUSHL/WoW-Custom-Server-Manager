@@ -159,6 +159,21 @@ elif [[ "$PROFILE" == "vanilla" || "$PROFILE" == "tbc" ]]; then
     echo "[realm:$PROFILE] mangos base already present — skipping duplicate base import."
   fi
 
+  # A table existing is not enough. A previously interrupted CMaNGOS content
+  # import can leave item_template with only the tiny core/base seed set.
+  if [[ "$PROFILE" == "tbc" ]]; then
+    tbc_item_count="$("${M[@]}" --batch --skip-column-names mangos -e "SELECT COUNT(*) FROM item_template;" 2>/dev/null || echo 0)"
+    tbc_epic_count="$("${M[@]}" --batch --skip-column-names mangos -e "SELECT COUNT(*) FROM item_template WHERE Quality=4;" 2>/dev/null || echo 0)"
+    tbc_legendary_count="$("${M[@]}" --batch --skip-column-names mangos -e "SELECT COUNT(*) FROM item_template WHERE Quality=5;" 2>/dev/null || echo 0)"
+    tbc_mount_count="$("${M[@]}" --batch --skip-column-names mangos -e "SELECT COUNT(*) FROM item_template WHERE (class=15 AND subclass=5) OR name LIKE 'Reins of %' OR name LIKE 'Horn of %' OR name LIKE '%Hawkstrider%' OR name LIKE '%Elekk%' OR name LIKE '%Talbuk%' OR name LIKE '%Nether Ray%' OR name LIKE '%Kodo%' OR name LIKE '%Raptor%' OR name LIKE '%Mechanostrider%';" 2>/dev/null || echo 0)"
+    echo "[realm:tbc] Existing catalog health: items=$tbc_item_count epic=$tbc_epic_count legendary=$tbc_legendary_count mounts=$tbc_mount_count"
+    if (( ${tbc_item_count:-0} < 20000 || ${tbc_epic_count:-0} < 100 || ${tbc_legendary_count:-0} < 1 || ${tbc_mount_count:-0} < 10 )); then
+      echo "[realm:tbc] Incomplete TBC world content detected — rebuilding mangos world DB only."
+      echo "[realm:tbc] Accounts and characters are preserved."
+      "${M[@]}" -e 'DROP DATABASE IF EXISTS mangos; CREATE DATABASE mangos CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;'
+    fi
+  fi
+
   DBROOT="$ROOT/sources/$PROFILE/contentdb"
   REPO="https://github.com/cmangos/classic-db.git"; [[ "$PROFILE" == "tbc" ]] && REPO="https://github.com/cmangos/tbc-db.git"
   if [[ ! -d "$DBROOT/.git" ]]; then git clone --depth 1 "$REPO" "$DBROOT"; else git -C "$DBROOT" pull --ff-only; fi
@@ -200,6 +215,19 @@ CFG
     db="${spec%%.*}"; table="${spec#*.}"
     table_exists "$db" "$table" || { echo "ERROR: CMaNGOS database incomplete: missing ${spec}" >&2; exit 42; }
   done
+
+  if [[ "$PROFILE" == "tbc" ]]; then
+    final_items="$("${M[@]}" --batch --skip-column-names mangos -e "SELECT COUNT(*) FROM item_template;" 2>/dev/null || echo 0)"
+    final_epics="$("${M[@]}" --batch --skip-column-names mangos -e "SELECT COUNT(*) FROM item_template WHERE Quality=4;" 2>/dev/null || echo 0)"
+    final_legendaries="$("${M[@]}" --batch --skip-column-names mangos -e "SELECT COUNT(*) FROM item_template WHERE Quality=5;" 2>/dev/null || echo 0)"
+    final_mounts="$("${M[@]}" --batch --skip-column-names mangos -e "SELECT COUNT(*) FROM item_template WHERE (class=15 AND subclass=5) OR name LIKE 'Reins of %' OR name LIKE 'Horn of %' OR name LIKE '%Hawkstrider%' OR name LIKE '%Elekk%' OR name LIKE '%Talbuk%' OR name LIKE '%Nether Ray%' OR name LIKE '%Kodo%' OR name LIKE '%Raptor%' OR name LIKE '%Mechanostrider%';" 2>/dev/null || echo 0)"
+    echo "[realm:tbc] Final catalog health: items=$final_items epic=$final_epics legendary=$final_legendaries mounts=$final_mounts"
+    if (( ${final_items:-0} < 20000 || ${final_epics:-0} < 100 || ${final_legendaries:-0} < 1 || ${final_mounts:-0} < 10 )); then
+      echo "ERROR: TBC content DB import is incomplete after repair (items=$final_items, epic=$final_epics, legendary=$final_legendaries, mounts=$final_mounts)." >&2
+      echo "ERROR: Do not mark this realm ready; see the Setup/Repair log in WoWCC Logs." >&2
+      exit 43
+    fi
+  fi
 
   copy_conf realmd; copy_conf mangosd
 
