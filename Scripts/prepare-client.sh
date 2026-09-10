@@ -106,6 +106,12 @@ EOF_WOWCC_TOOLS
   echo "[client:wotlk] Extracting DBC and maps…"
   ./mapextractor
 
+  # vmap4extractor requires a completely clean output directory. A previous
+  # interrupted/retried Prepare Client can leave Buildings/ behind and the
+  # extractor then aborts with “output directory seems to be polluted”.
+  echo "[client:wotlk] Cleaning stale VMap extraction output…"
+  rm -rf Buildings vmaps
+
   echo "[client:wotlk] Extracting VMap source…"
   ./vmap4extractor
 

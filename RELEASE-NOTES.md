@@ -1,3 +1,10 @@
+# v1.5.91 — WotLK VMap Retry Cleanup
+
+- Fixes `Your output directory seems to be polluted` when rerunning WotLK Prepare Client.
+- Automatically removes stale `Buildings/` and `vmaps/` before `vmap4extractor`.
+- Makes Prepare Client repeatable after interrupted or failed extraction attempts.
+- Release artifacts are uploaded as a folder so the downloaded ZIP contains the project directly instead of another ZIP.
+
 # v1.5.90 — WotLK MMAP Config Fix
 
 - Fixes Prepare Client failure: `Failed to load configuration` from `mmaps_generator`.
