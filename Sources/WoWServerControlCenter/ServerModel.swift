@@ -1905,10 +1905,29 @@ final class ServerModel: ObservableObject {
     }
 
     func loadCatalogPage(reset: Bool = false, pageDelta: Int = 0) {
-        // Do not gate database-backed collections on the cached UI status.
-        // The actual MySQL query below is authoritative and runs off the UI
-        // thread. This keeps navigation fast while still allowing an already
-        // running managed MySQL instance to serve the catalog after app reopen.
+        guard !catalogLoading else { return }
+
+        if !portOpen(Int32(mysqlPort)) {
+            catalogLoading = true
+            catalogStatus = "Starting \(selectedExpansion.shortTitle) database for collections…"
+            Task {
+                do {
+                    try await startMySQL()
+                    try configureDatabaseAccess()
+                    mysqlRunning = true
+                    catalogLoading = false
+                    loadCatalogPage(reset: reset, pageDelta: pageDelta)
+                } catch {
+                    catalogLoading = false
+                    serverCatalog = BuiltInCatalog.entries(for: selectedExpansion)
+                    catalogHasMore = false
+                    catalogStatus = "Realm DB unavailable — showing same-expansion examples only. \(error.localizedDescription)"
+                    statusMessage = catalogStatus
+                }
+            }
+            return
+        }
+
         if reset { catalogPage = 0 }
         else { catalogPage = max(0, catalogPage + pageDelta) }
 
@@ -1991,7 +2010,9 @@ final class ServerModel: ObservableObject {
             } catch {
                 DispatchQueue.main.async {
                     self.catalogLoading = false
-                    self.catalogStatus = "Catalog DB: \(error.localizedDescription)"
+                    self.serverCatalog = BuiltInCatalog.entries(for: self.selectedExpansion)
+                    self.catalogHasMore = false
+                    self.catalogStatus = "Could not read selected realm DB — showing same-expansion examples only. \(error.localizedDescription)"
                     self.statusMessage = self.catalogStatus
                 }
             }
