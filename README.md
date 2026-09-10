@@ -1,4 +1,10 @@
-# WoW Server Control Center for macOS
+<p align="center">
+  <img src="Resources/AppIcon-1024.png" alt="WoW Server Control Center icon" width="112" height="112">
+</p>
+
+<h1 align="center">WoW Server Control Center for macOS</h1>
+
+<p align="center"><strong>Native macOS control center for local Vanilla, TBC, and WotLK emulator realms.</strong></p>
 
 > **Work in progress.** WoW Server Control Center (WoWCC) is an actively developed native SwiftUI macOS application for building, configuring, running, monitoring, and administering local World of Warcraft emulator realms from one GUI.
 
