@@ -210,7 +210,8 @@ final class ServerModel: ObservableObject {
     var requiredClientDataDirectories: [String] {
         switch selectedExpansion {
         case .wotlk: return ["dbc","maps","vmaps","mmaps"]
-        case .vanilla, .tbc, .cataclysm, .mop: return ["dbc","maps","vmaps"]
+        case .cataclysm: return ["dbc","db2","maps","vmaps"]
+        case .vanilla, .tbc, .mop: return ["dbc","maps","vmaps"]
         default: return []
         }
     }
@@ -303,6 +304,9 @@ final class ServerModel: ObservableObject {
         case .vanilla, .tbc: return "mangos"
         default: return "world"
         }
+    }
+    private var catalogTableName: String {
+        selectedExpansion == .cataclysm ? "wowcc_item_template" : "item_template"
     }
 
     func rebuildProcesses() {
@@ -492,7 +496,15 @@ final class ServerModel: ObservableObject {
                 ("mangos","item_template"),
                 ("mangos","creature_template")
             ]
-        case .cataclysm, .mop:
+        case .cataclysm:
+            requiredTables = [
+                ("auth","account"),
+                ("auth","realmlist"),
+                ("characters","characters"),
+                ("world","creature_template"),
+                ("world","wowcc_item_template")
+            ]
+        case .mop:
             requiredTables = [
                 ("auth","account"),
                 ("auth","realmlist"),
@@ -1513,7 +1525,7 @@ final class ServerModel: ObservableObject {
             var names: [Int:String] = [:]
             if !ids.isEmpty {
                 let list = Array(Set(ids)).map(String.init).joined(separator: ",")
-                let nr = try client.query(database: worldDB, sql: "SELECT entry,name FROM item_template WHERE entry IN (\(list));")
+                let nr = try client.query(database: worldDB, sql: "SELECT entry,name FROM \(catalogTableName) WHERE entry IN (\(list));")
                 for line in nr.split(separator: "\n") { let f=line.split(separator:"\t",omittingEmptySubsequences:false); if f.count >= 2, let id=Int(f[0]) { names[id]=String(f[1]) } }
             }
             inventory = rows.split(separator: "\n").compactMap { line in
@@ -1553,6 +1565,7 @@ final class ServerModel: ObservableObject {
         let expansionTitle = selectedExpansion.shortTitle
         let expansion = selectedExpansion
         let database = worldDatabaseName
+        let table = catalogTableName
         let port = mysqlPort
         guard let mysqlExecutable = locateMySQL("mysql") else {
             tooltipLoadingIDs.remove(id)
@@ -1563,12 +1576,12 @@ final class ServerModel: ObservableObject {
         tooltipQueue.addOperation {
             do {
                 let client = DatabaseClient(executable: mysqlExecutable, port: port)
-                let columnRaw = try client.query(database: database, sql: "SHOW COLUMNS FROM item_template;")
+                let columnRaw = try client.query(database: database, sql: "SHOW COLUMNS FROM \(table);")
                 let columns = columnRaw.split(separator:"\n").compactMap { line -> String? in
                     let parts = line.split(separator:"\t", omittingEmptySubsequences:false)
                     return parts.first.map(String.init)
                 }
-                let rowRaw = try client.query(database: database, sql: "SELECT * FROM item_template WHERE entry=\(id) LIMIT 1;")
+                let rowRaw = try client.query(database: database, sql: "SELECT * FROM \(table) WHERE entry=\(id) LIMIT 1;")
                 guard let firstRow = rowRaw.split(separator:"\n", omittingEmptySubsequences:false).first else {
                     throw NSError(domain:"WoWCC.Tooltip", code:1, userInfo:[NSLocalizedDescriptionKey:"Item row not found"])
                 }
@@ -1978,6 +1991,7 @@ final class ServerModel: ObservableObject {
         let kind = catalogKind
         let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         let db = worldDatabaseName
+        let table = catalogTableName
         guard let mysqlExecutable = locateMySQL("mysql") else {
             statusMessage = "MySQL client not found"
             return
@@ -1992,7 +2006,7 @@ final class ServerModel: ObservableObject {
         DispatchQueue.global(qos: .userInitiated).async {
             do {
                 let client = DatabaseClient(executable: mysqlExecutable, port: port)
-                let columnRaw = try client.query(database: db, sql: "SHOW COLUMNS FROM item_template;")
+                let columnRaw = try client.query(database: db, sql: "SHOW COLUMNS FROM \(table);")
                 let liveColumns = columnRaw.split(separator: "\n").compactMap { line -> String? in
                     line.split(separator: "\t", omittingEmptySubsequences: false).first.map(String.init)
                 }
@@ -2018,16 +2032,16 @@ final class ServerModel: ObservableObject {
                     throw NSError(domain: "WoWCC.Catalog", code: 2, userInfo: [NSLocalizedDescriptionKey: "item_template has no entry column in \(db)"])
                 }
 
-                let totalTableRaw = try client.query(database: db, sql: "SELECT COUNT(*) FROM item_template;")
+                let totalTableRaw = try client.query(database: db, sql: "SELECT COUNT(*) FROM \(table);")
                 let totalTableItems = Int(totalTableRaw.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
                 guard totalTableItems >= 1000 else {
                     throw NSError(domain: "WoWCC.Catalog", code: 3, userInfo: [NSLocalizedDescriptionKey: "\(db).item_template contains only \(totalTableItems) rows. Run Repair Realm to restore the full world database."])
                 }
 
-                let countSQL = "SELECT COUNT(*) FROM item_template WHERE \(whereClause);"
+                let countSQL = "SELECT COUNT(*) FROM \(table) WHERE \(whereClause);"
                 let sql = """
                 SELECT \(entryCol),\(nameCol),\(qualityCol),\(classCol),\(subclassCol),\(inventoryCol),\(levelCol),\(setCol),\(allowableClassCol)
-                FROM item_template
+                FROM \(table)
                 WHERE \(whereClause)
                 ORDER BY \(levelCol) DESC, \(qualityCol) DESC, \(nameCol), \(entryCol)
                 LIMIT \(pageSize) OFFSET \(offset);
@@ -2217,6 +2231,7 @@ final class ServerModel: ObservableObject {
         }
 
         let db = worldDatabaseName
+        let table = catalogTableName
         let port = mysqlPort
         let expansion = selectedExpansion
         let expansionClause = "1=1"
@@ -2234,7 +2249,7 @@ final class ServerModel: ObservableObject {
                 // high-end item_template table.
                 let sql = """
                 SELECT entry,name,Quality,class,subclass,InventoryType,ItemLevel,itemset,AllowableClass
-                FROM item_template
+                FROM \(table)
                 WHERE itemset > 0 AND \(expansionClause)
                 ORDER BY itemset,InventoryType,ItemLevel DESC,entry;
                 """

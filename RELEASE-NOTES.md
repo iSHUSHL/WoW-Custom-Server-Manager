@@ -1,3 +1,13 @@
+# v1.5.84 — Cataclysm DB2 Realm + Catalog Fix
+
+- Fixes Cataclysm Repair Realm incorrectly requiring the WotLK-only `world.item_template`.
+- Creates/configures the Cataclysm `hotfixes` database required by the 4.3.4 Trinity branch.
+- Adds `HotfixDatabaseInfo` to the managed Cata worldserver configuration.
+- Requires/copies Cata `db2` client data as part of client-data readiness.
+- Builds a full WoWCC Cataclysm catalog table from `Item.db2` and `Item-sparse.db2`.
+- Collection Browser, Gear Sets, inventory names and tooltips use the generated Cata catalog while TBC/WotLK/MoP keep their existing tables.
+- Preserves the restored pre-premium UI and tooltip auto-fit.
+
 # v1.5.83 — WotLK / Cata / MoP Catalog Recovery
 
 - Adds live item_template schema introspection for Collection Browser.

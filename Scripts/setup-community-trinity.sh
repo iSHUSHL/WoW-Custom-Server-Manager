@@ -41,6 +41,10 @@ copy_conf(){
 
 log "Creating isolated auth / characters / world schemas…"
 "${M[@]}" -e 'CREATE DATABASE IF NOT EXISTS auth CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; CREATE DATABASE IF NOT EXISTS characters CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; CREATE DATABASE IF NOT EXISTS world CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;'
+if [[ "$PROFILE" == "cataclysm" ]]; then
+  log "Creating Cataclysm hotfixes schema…"
+  "${M[@]}" -e 'CREATE DATABASE IF NOT EXISTS hotfixes CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;'
+fi
 
 # Import source-provided base auth and characters schemas if they are not already present.
 import_first_match(){
@@ -64,8 +68,20 @@ has_table auth account || import_first_match auth '*auth*.sql'
 has_table auth account || import_first_match auth '*login*.sql'
 has_table characters characters || import_first_match characters '*characters*.sql'
 
-# World content is published as a release database by both community projects.
-if ! has_table world creature_template || ! has_table world item_template; then
+if [[ "$PROFILE" == "cataclysm" ]] && { ! has_table hotfixes item || ! has_table hotfixes item_sparse; }; then
+  HOTFIX_BASE="$SRC/sql/base/dev/hotfixes_database.sql"
+  [[ -f "$HOTFIX_BASE" ]] || fail "Cataclysm hotfixes base schema not found: $HOTFIX_BASE"
+  log "Importing Cataclysm hotfixes database schema…"
+  "${M[@]}" hotfixes < "$HOTFIX_BASE"
+fi
+
+# Cataclysm 4.3.4 intentionally does not use a WotLK-style world.item_template.
+# MoP/community branches may still expose it. World download is therefore keyed
+# to creature_template for Cata, and creature+item_template for MoP.
+world_missing=0
+has_table world creature_template || world_missing=1
+if [[ "$PROFILE" == "mop" ]]; then has_table world item_template || world_missing=1; fi
+if (( world_missing )); then
   log "World DB is missing. Locating latest database release…"
   ASSET_INFO="$(python3 - "$API" <<'PY'
 import json,sys,urllib.request
@@ -148,6 +164,7 @@ for fn in (auth,world):
       'AuthDatabaseInfo':f'127.0.0.1;{port};wowcc;wowcc;auth',
       'WorldDatabaseInfo':f'127.0.0.1;{port};wowcc;wowcc;world',
       'CharacterDatabaseInfo':f'127.0.0.1;{port};wowcc;wowcc;characters',
+      'HotfixDatabaseInfo':f'127.0.0.1;{port};wowcc;wowcc;hotfixes',
     }
     for key,val in repl.items():
       s=re.sub(rf'^{re.escape(key)}\s*=.*$',f'{key} = "{val}"',s,flags=re.M)
@@ -155,15 +172,35 @@ for fn in (auth,world):
     p.write_text(s)
 PY
 
-for spec in auth.account auth.realmlist characters.characters world.item_template world.creature_template; do
-  db="${spec%%.*}"; table="${spec#*.}"
-  has_table "$db" "$table" || fail "Database bootstrap incomplete: missing $spec"
-done
+if [[ "$PROFILE" == "cataclysm" ]]; then
+  for spec in auth.account auth.realmlist characters.characters world.creature_template hotfixes.item hotfixes.item_sparse; do
+    db="${spec%%.*}"; table="${spec#*.}"
+    has_table "$db" "$table" || fail "Database bootstrap incomplete: missing $spec"
+  done
 
-world_items="$("${M[@]}" --batch --skip-column-names world -e "SELECT COUNT(*) FROM item_template;" 2>/dev/null || echo 0)"
-log "Catalog health: items=$world_items"
-if (( ${world_items:-0} < 10000 )); then
-  fail "$LABEL world DB is incomplete: world.item_template has only $world_items rows. Remove the downloaded database cache in Storage & Cleanup, then run Repair Realm again so WoWCC downloads/imports a full database release."
+  SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+  CATA_SQL="$PR/logs/cata-catalog-build.sql"
+  log "Building full Cataclysm item catalog from client Item.db2 + Item-sparse.db2…"
+  python3 "$SCRIPT_DIR/build-cata-catalog.py" --data-root "$PR/data" --output "$CATA_SQL"
+  "${M[@]}" < "$CATA_SQL"
+  rm -f "$CATA_SQL"
+
+  cata_items="$("${M[@]}" --batch --skip-column-names world -e "SELECT COUNT(*) FROM wowcc_item_template;" 2>/dev/null || echo 0)"
+  log "Cataclysm DB2 catalog health: items=$cata_items"
+  if (( ${cata_items:-0} < 10000 )); then
+    fail "Cataclysm catalog build is incomplete: world.wowcc_item_template has only $cata_items rows. Run Prepare Client Data again with a complete 4.3.4 client, then Repair Realm."
+  fi
+else
+  for spec in auth.account auth.realmlist characters.characters world.item_template world.creature_template; do
+    db="${spec%%.*}"; table="${spec#*.}"
+    has_table "$db" "$table" || fail "Database bootstrap incomplete: missing $spec"
+  done
+
+  world_items="$("${M[@]}" --batch --skip-column-names world -e "SELECT COUNT(*) FROM item_template;" 2>/dev/null || echo 0)"
+  log "Catalog health: items=$world_items"
+  if (( ${world_items:-0} < 10000 )); then
+    fail "$LABEL world DB is incomplete: world.item_template has only $world_items rows. Remove the downloaded database cache in Storage & Cleanup, then run Repair Realm again so WoWCC downloads/imports a full database release."
+  fi
 fi
 
 # Existing community DBs normally ship a realmlist row. Update all rows safely;
