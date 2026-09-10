@@ -1,3 +1,10 @@
+# v1.5.80 — Tooltip Auto-Fit
+
+- Removed the unusable tooltip ScrollView/scrollbar from the mouse-transparent floating panel.
+- Tooltip height now uses real SwiftUI wrapped-content measurement instead of newline estimation.
+- Tooltip progressively widens up to the available display width so long Blizzard-style details fit without clipping.
+- Tooltip remains mouse-transparent so Give and other controls remain clickable.
+
 # v1.5.79 — Blizzard-Style Tooltips + Resilient Era Icons
 
 - Reworks item hover cards into a Blizzard/WoW-style visual hierarchy with quality-colored title, green Equip/Use/Set effects, red requirements, flavor text and scroll-safe long cards.

@@ -1368,13 +1368,41 @@ private final class WoWTooltipPanel {
     private func resizeToContent() {
         guard let host=hostingView, let panel else { return }
 
-        let width: CGFloat = 470
-        let lineCount = max(4, hostingView?.rootView.text.components(separatedBy:"\n").count ?? 4)
-        let estimated = CGFloat(lineCount * 18 + 66)
-        let screenLimit = max(300, (NSScreen.main?.visibleFrame.height ?? 900) - 48)
-        let height = min(max(estimated, 140), screenLimit)
-        panel.setContentSize(NSSize(width:width,height:height))
-        host.frame = NSRect(x:0,y:0,width:width,height:height)
+        // Measure the real wrapped SwiftUI content instead of guessing from
+        // newline count. The tooltip stays visual-only and does not need a
+        // dead ScrollView just to reveal wrapped lines.
+        let screen = NSScreen.screens.first { NSMouseInRect(NSEvent.mouseLocation,$0.frame,false) }
+            ?? NSScreen.main
+        let visible = screen?.visibleFrame ?? NSRect(x:0,y:0,width:1440,height:900)
+        let maxHeight = max(320, visible.height - 32)
+        let maxWidth = max(470, min(700, visible.width - 32))
+
+        let requestedWidths: [CGFloat] = [500, 540, 580, 620, 660, 700]
+        var widths: [CGFloat] = []
+        for candidate in requestedWidths {
+            let width = min(candidate, maxWidth)
+            if width >= 470 && !widths.contains(width) { widths.append(width) }
+        }
+        if widths.isEmpty { widths = [maxWidth] }
+
+        var chosenWidth = widths[0]
+        var chosenHeight = maxHeight
+
+        for width in widths {
+            host.frame = NSRect(x:0,y:0,width:width,height:10_000)
+            host.layoutSubtreeIfNeeded()
+            let measuredHeight = max(120, ceil(host.fittingSize.height))
+            chosenWidth = width
+            chosenHeight = measuredHeight
+            if measuredHeight <= maxHeight { break }
+        }
+
+        // Blizzard tooltips should normally show the whole card at once.
+        // Widening is attempted before this final display-safety clamp.
+        chosenHeight = min(chosenHeight, maxHeight)
+        panel.setContentSize(NSSize(width:chosenWidth,height:chosenHeight))
+        host.frame = NSRect(x:0,y:0,width:chosenWidth,height:chosenHeight)
+        host.layoutSubtreeIfNeeded()
     }
 
     private func positionNearMouse() {
@@ -1429,25 +1457,22 @@ private struct WoWTooltipPanelView: View {
                 }
             }
 
-            ScrollView {
-                VStack(alignment:.leading,spacing:3) {
-                    ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
-                        Text(line.isEmpty ? " " : line)
-                            .font(lineFont(index:index,line:line))
-                            .foregroundStyle(lineColor(index:index,line:line))
-                            .lineLimit(nil)
-                            .multilineTextAlignment(.leading)
-                            .frame(maxWidth:.infinity,alignment:.leading)
-                            .fixedSize(horizontal:false,vertical:true)
-                    }
+            VStack(alignment:.leading,spacing:3) {
+                ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+                    Text(line.isEmpty ? " " : line)
+                        .font(lineFont(index:index,line:line))
+                        .foregroundStyle(lineColor(index:index,line:line))
+                        .lineLimit(nil)
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth:.infinity,alignment:.leading)
+                        .fixedSize(horizontal:false,vertical:true)
                 }
-                .frame(maxWidth:.infinity,alignment:.leading)
-                .textSelection(.enabled)
             }
-            .scrollIndicators(.automatic)
+            .frame(maxWidth:.infinity,alignment:.leading)
+            .textSelection(.enabled)
         }
         .padding(13)
-        .frame(width:470,alignment:.leading)
+        .frame(minWidth:470,maxWidth:.infinity,alignment:.leading)
         .background(
             RoundedRectangle(cornerRadius:8)
                 .fill(Color.black.opacity(0.96))
