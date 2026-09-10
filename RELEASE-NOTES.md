@@ -1,3 +1,10 @@
+# v1.5.90 — WotLK MMAP Config Fix
+
+- Fixes Prepare Client failure: `Failed to load configuration` from `mmaps_generator`.
+- Copies and validates `mmaps-config.yaml` during WotLK core install.
+- Prepare Client self-heals older installs by locating the config in profile/build/source paths.
+- Runs `mmaps_generator --config <absolute path>` explicitly.
+
 # v1.5.89 — WotLK Extractor Target Rescue
 
 - Detects Playerbot fork extractor output aliases instead of assuming one filename.

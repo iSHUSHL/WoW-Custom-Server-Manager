@@ -117,8 +117,26 @@ EOF_WOWCC_TOOLS
 
   rm -rf mmaps
   mkdir -p mmaps
+
+  # Current Playerbot/AzerothCore mmaps_generator requires mmaps-config.yaml.
+  # Keep Prepare Client self-healing for existing cores by locating the config
+  # from the installed profile, main build, dedicated extractor build, or source tree.
+  MMAPS_CONFIG=""
+  for candidate in \
+    "$PR/bin/mmaps-config.yaml" \
+    "$ROOT/sources/wotlk/build/bin/mmaps-config.yaml" \
+    "$ROOT/sources/wotlk/extractor-build/bin/mmaps-config.yaml" \
+    "$ROOT/sources/wotlk/core/src/tools/mmaps_generator/mmaps-config.yaml"; do
+    if [[ -s "$candidate" ]]; then MMAPS_CONFIG="$candidate"; break; fi
+  done
+  [[ -n "$MMAPS_CONFIG" ]] || {
+    echo "ERROR: WotLK mmaps_generator was built, but mmaps-config.yaml is missing. Rebuild Core + PlayerBots with WoWCC 1.5.90+ and check cmake-wotlk-extractors.log in WoWCC Logs." >&2
+    exit 53
+  }
+  cp -f "$MMAPS_CONFIG" "$CLIENTDIR/mmaps-config.yaml"
+  echo "[client:wotlk] MMAP config: $MMAPS_CONFIG"
   echo "[client:wotlk] Generating MMAPs (this can take a long time)…"
-  ./mmaps_generator
+  ./mmaps_generator --config "$CLIENTDIR/mmaps-config.yaml"
 
   # Validate actual content, not just directory existence.
   count_files() { find "$1" -type f 2>/dev/null | wc -l | tr -d ' '; }

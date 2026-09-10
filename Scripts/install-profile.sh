@@ -655,9 +655,13 @@ EOF_WOWCC_TOOLS
     [[ -x "$PROFILE_ROOT/bin/$tool" ]] || fail "WotLK extractor '$tool' is still missing after dedicated maps-only build. See cmake-wotlk-extractors.log in WoWCC Logs."
   done
 
-  for candidate in "$BUILD/bin/mmaps-config.yaml" "$ROOT/sources/$PROFILE/extractor-build/bin/mmaps-config.yaml"; do
-    if [[ -f "$candidate" ]]; then cp -f "$candidate" "$PROFILE_ROOT/bin/mmaps-config.yaml"; break; fi
+  for candidate in \
+    "$BUILD/bin/mmaps-config.yaml" \
+    "$ROOT/sources/$PROFILE/extractor-build/bin/mmaps-config.yaml" \
+    "$SRC_ROOT/src/tools/mmaps_generator/mmaps-config.yaml"; do
+    if [[ -s "$candidate" ]]; then cp -f "$candidate" "$PROFILE_ROOT/bin/mmaps-config.yaml"; break; fi
   done
+  [[ -s "$PROFILE_ROOT/bin/mmaps-config.yaml" ]] || fail "WotLK mmaps-config.yaml was not installed. See cmake-wotlk-extractors.log in WoWCC Logs."
   log "WotLK extractors ready: mapextractor, vmap4extractor, vmap4assembler, mmaps_generator"
 fi
 
