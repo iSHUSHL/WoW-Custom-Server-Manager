@@ -79,36 +79,27 @@ if [[ "$PROFILE" == "wotlk" ]]; then
   mkdir -p "$PR/data"
 
   # These are the AzerothCore tools required for a complete 3.3.5a data extraction.
-  # Self-heal older/partial installs: if cmake left a tool in the persistent
-  # WotLK build tree, recover it into the managed profile instead of falsely
-  # telling the user to rebuild a core that is already healthy.
-  WOTLK_BUILD="$ROOT/sources/wotlk/build"
-  resolve_wotlk_extractor() {
-    local tool="$1" found=""
-    if [[ -x "$PR/bin/$tool" ]]; then
-      printf '%s\n' "$PR/bin/$tool"
-      return 0
-    fi
-    found="$(find "$WOTLK_BUILD" -type f -name "$tool" -perm -111 -print 2>/dev/null | head -n 1 || true)"
-    if [[ -n "$found" ]]; then
-      cp -f "$found" "$PR/bin/$tool"
-      chmod +x "$PR/bin/$tool"
-      echo "[client:wotlk] Recovered missing $tool from the existing core build." >&2
-      printf '%s\n' "$PR/bin/$tool"
-      return 0
-    fi
+  # 1.5.89+ accepts both canonical WoWCC names and Playerbot-fork underscore variants.
+  resolve_wotlk_tool() {
+    local canonical="$1"; shift
+    local name
+    for name in "$canonical" "$@"; do
+      [[ -x "$PR/bin/$name" ]] && { printf '%s\n' "$PR/bin/$name"; return 0; }
+    done
     return 1
   }
-
-  for tool in mapextractor vmap4extractor vmap4assembler mmaps_generator; do
-    TOOL_PATH="$(resolve_wotlk_extractor "$tool" || true)"
-    if [[ -z "$TOOL_PATH" || ! -x "$TOOL_PATH" ]]; then
-      echo "ERROR: Missing WotLK extractor '$tool'. Core binaries exist, but the extractor target was not produced. Use WotLK → Rebuild Core + PlayerBots once with WoWCC 1.5.87 or newer. See Core Build log in WoWCC Logs." >&2
-      exit 41
-    fi
-    cp -f "$TOOL_PATH" "$CLIENTDIR/$tool"
+  while IFS='|' read -r tool aliases; do
+    IFS=',' read -r -a alias_array <<< "$aliases"
+    source_tool="$(resolve_wotlk_tool "$tool" "${alias_array[@]}" || true)"
+    [[ -n "$source_tool" ]] || { echo "ERROR: Missing WotLK extractor '$tool'. Run WotLK → Rebuild Core + PlayerBots with WoWCC 1.5.89+. If it still fails, open cmake-wotlk-extractors.log in WoWCC Logs." >&2; exit 41; }
+    cp -f "$source_tool" "$CLIENTDIR/$tool"
     chmod +x "$CLIENTDIR/$tool"
-  done
+  done <<'EOF_WOWCC_TOOLS'
+mapextractor|map_extractor
+vmap4extractor|vmap4_extractor,vmapextractor,vmap_extractor
+vmap4assembler|vmap4_assembler,vmapassembler,vmap_assembler
+mmaps_generator|mmaps-generator,mmap_generator
+EOF_WOWCC_TOOLS
 
   cd "$CLIENTDIR"
 

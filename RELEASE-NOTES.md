@@ -1,3 +1,10 @@
+# v1.5.89 — WotLK Extractor Target Rescue
+
+- Detects Playerbot fork extractor output aliases instead of assuming one filename.
+- If the main WotLK PlayerBots build omits maps tools, WoWCC performs a dedicated `TOOLS_BUILD=maps-only` build and installs the extractors automatically.
+- `Prepare Client` accepts upstream underscore aliases but normalizes to the stable WoWCC names.
+- Extractor configure/build diagnostics are available as `cmake-wotlk-extractors.log` in WoWCC Logs.
+
 # v1.5.88 — WotLK PlayerBots Clone + Extractor Repair
 
 - Fixed false “mod-playerbots clone is incomplete” failure: current upstream module has no root CMakeLists.txt.

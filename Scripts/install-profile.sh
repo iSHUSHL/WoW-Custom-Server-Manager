@@ -577,39 +577,87 @@ else
   fi
 fi
 
-if [[ "$PROFILE" == "wotlk" ]]; then
-  log "Verifying WotLK extractor targets before install…"
-  for tool in mapextractor vmap4extractor vmap4assembler mmaps_generator; do
-    candidate="$(find "$BUILD" -type f -name "$tool" -perm -111 -print 2>/dev/null | head -n1 || true)"
-    [[ -n "$candidate" ]] || fail "WotLK build completed without extractor target '$tool'. See $BUILD_LOG"
-    log "Extractor built: $tool -> $candidate"
-  done
-fi
-
 log "Installing core into $PROFILE_ROOT"
 cmake --install "$BUILD" --config Release
 
-# WotLK extractor recovery. The Playerbot fork builds the standard AzerothCore
-# map/vmap/mmap tools, but some CMake install layouts can leave them in the
-# build tree instead of PROFILE_ROOT/bin. Prepare Client must never depend on
-# that install-layout detail. Copy the verified executables into our stable
-# managed bin path after every WotLK rebuild.
+# WotLK extractor recovery. The Playerbot fork can expose extractor targets
+# under different target/output names depending on branch/CMake generation.
+# First normalize anything already produced. If maps tools were omitted from
+# the main build, configure a dedicated maps-only build and install them.
 if [[ "$PROFILE" == "wotlk" ]]; then
-  log "Verifying WotLK client-data extractors…"
-  for tool in mapextractor vmap4extractor vmap4assembler mmaps_generator; do
-    if [[ ! -x "$PROFILE_ROOT/bin/$tool" ]]; then
-      FOUND_TOOL="$(find "$BUILD" -type f -name "$tool" -perm -111 -print 2>/dev/null | head -n 1 || true)"
-      if [[ -n "$FOUND_TOOL" ]]; then
-        cp -f "$FOUND_TOOL" "$PROFILE_ROOT/bin/$tool"
-        chmod +x "$PROFILE_ROOT/bin/$tool"
-        log "Recovered extractor $tool from build tree."
+  log "Resolving WotLK client-data extractors…"
+
+  find_extractor() {
+    local canonical="$1"; shift
+    local name found search_root
+    for search_root in "$PROFILE_ROOT/bin" "$BUILD"; do
+      for name in "$canonical" "$@"; do
+        found="$(find "$search_root" -type f -name "$name" -perm -111 -print 2>/dev/null | head -n 1 || true)"
+        if [[ -n "$found" ]]; then printf '%s\n' "$found"; return 0; fi
+      done
+    done
+    return 1
+  }
+
+  normalize_wotlk_extractors() {
+    local canonical aliases found
+    while IFS='|' read -r canonical aliases; do
+      IFS=',' read -r -a alias_array <<< "$aliases"
+      if [[ ! -x "$PROFILE_ROOT/bin/$canonical" ]]; then
+        found="$(find_extractor "$canonical" "${alias_array[@]}" || true)"
+        if [[ -n "$found" ]]; then
+          cp -f "$found" "$PROFILE_ROOT/bin/$canonical"
+          chmod +x "$PROFILE_ROOT/bin/$canonical"
+          log "Normalized extractor $canonical from $(basename "$found")."
+        fi
       fi
-    fi
-    [[ -x "$PROFILE_ROOT/bin/$tool" ]] || fail "WotLK build completed but required extractor '$tool' was not produced. See $BUILD_LOG"
+    done <<'EOF_WOWCC_TOOLS'
+mapextractor|map_extractor
+vmap4extractor|vmap4_extractor,vmapextractor,vmap_extractor
+vmap4assembler|vmap4_assembler,vmapassembler,vmap_assembler
+mmaps_generator|mmaps-generator,mmap_generator
+EOF_WOWCC_TOOLS
+  }
+
+  normalize_wotlk_extractors
+
+  missing=0
+  for tool in mapextractor vmap4extractor vmap4assembler mmaps_generator; do
+    [[ -x "$PROFILE_ROOT/bin/$tool" ]] || missing=1
   done
-  if [[ -f "$BUILD/bin/mmaps-config.yaml" && ! -f "$PROFILE_ROOT/bin/mmaps-config.yaml" ]]; then
-    cp -f "$BUILD/bin/mmaps-config.yaml" "$PROFILE_ROOT/bin/mmaps-config.yaml"
+
+  if (( missing )); then
+    EXTRACT_BUILD="$ROOT/sources/$PROFILE/extractor-build"
+    EXTRACT_LOG="$PROFILE_ROOT/logs/cmake-wotlk-extractors.log"
+    log "Main PlayerBots build did not install every maps tool; creating dedicated maps-only extractor build…"
+    rm -rf "$EXTRACT_BUILD"
+    mkdir -p "$EXTRACT_BUILD"
+
+    EXTRACT_ARGS=("${CMAKE_ARGS[@]}")
+    EXTRACT_ARGS+=( -B "$EXTRACT_BUILD" -DTOOLS_BUILD=maps-only -DCMAKE_INSTALL_PREFIX="$PROFILE_ROOT" )
+    if ! cmake "${EXTRACT_ARGS[@]}" 2>&1 | tee "$EXTRACT_LOG"; then
+      fail "WotLK maps-only extractor configure failed. See $EXTRACT_LOG in WoWCC Logs."
+    fi
+    if ! cmake --build "$EXTRACT_BUILD" --config Release --parallel "$JOBS" 2>&1 | tee -a "$EXTRACT_LOG"; then
+      fail "WotLK maps-only extractor build failed. See $EXTRACT_LOG in WoWCC Logs."
+    fi
+    cmake --install "$EXTRACT_BUILD" --config Release 2>&1 | tee -a "$EXTRACT_LOG"
+
+    # Search both the dedicated build and installed profile, accepting upstream
+    # underscore/non-underscore output variants, then normalize for Prepare Client.
+    BUILD_ORIGINAL="$BUILD"
+    BUILD="$EXTRACT_BUILD"
+    normalize_wotlk_extractors
+    BUILD="$BUILD_ORIGINAL"
   fi
+
+  for tool in mapextractor vmap4extractor vmap4assembler mmaps_generator; do
+    [[ -x "$PROFILE_ROOT/bin/$tool" ]] || fail "WotLK extractor '$tool' is still missing after dedicated maps-only build. See cmake-wotlk-extractors.log in WoWCC Logs."
+  done
+
+  for candidate in "$BUILD/bin/mmaps-config.yaml" "$ROOT/sources/$PROFILE/extractor-build/bin/mmaps-config.yaml"; do
+    if [[ -f "$candidate" ]]; then cp -f "$candidate" "$PROFILE_ROOT/bin/mmaps-config.yaml"; break; fi
+  done
   log "WotLK extractors ready: mapextractor, vmap4extractor, vmap4assembler, mmaps_generator"
 fi
 
