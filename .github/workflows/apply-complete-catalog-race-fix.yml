@@ -1,0 +1,92 @@
+name: Apply Complete Catalog Race Fix
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/apply-complete-catalog-race-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fix complete per-profile catalog loading
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('Sources/WoWServerControlCenter/ServerModel.swift')
+          s=p.read_text()
+
+          # The previous ID-range filter was only a heuristic and clipped valid
+          # rows. All Items must mean every item_template row in the selected
+          # expansion profile's own world database.
+          old='''        var clauses: [String] = [expansionItemEntryClause]\n'''
+          if old not in s:
+              raise SystemExit('catalog clause marker not found')
+          s=s.replace(old, '''        var clauses: [String] = ["1=1"]\n''', 1)
+
+          # Remove the misleading hard-coded item-ID era buckets entirely.
+          start=s.find('    private var expansionItemEntryClause: String {')
+          end=s.find('    private func catalogWhereClause', start)
+          if start != -1 and end != -1:
+              s=s[:start] + s[end:]
+
+          # Capture the exact expansion/profile used by the query. This prevents
+          # a slow TBC query from painting TBC rows after the user switches to WotLK.
+          marker='''        let page = catalogPage\n        let pageSize = catalogPageSize\n        let kind = catalogKind\n'''
+          repl='''        let page = catalogPage\n        let pageSize = catalogPageSize\n        let kind = catalogKind\n        let queryExpansion = selectedExpansion\n'''
+          if marker not in s:
+              raise SystemExit('query snapshot marker not found')
+          s=s.replace(marker,repl,1)
+
+          marker='''                DispatchQueue.main.async {\n                    self.serverCatalog = parsed\n'''
+          repl='''                DispatchQueue.main.async {\n                    // Ignore stale results from a profile/category/page the user\n                    // already left. This is critical when switching expansions\n                    // while a large catalog query is still running.\n                    guard self.selectedExpansion == queryExpansion,\n                          self.catalogKind == kind,\n                          self.catalogPage == page else { return }\n                    self.serverCatalog = parsed\n'''
+          if marker not in s:
+              raise SystemExit('result guard marker not found')
+          s=s.replace(marker,repl,1)
+
+          # Do the same for errors so a stale TBC failure cannot overwrite WotLK UI.
+          marker='''            } catch {\n                DispatchQueue.main.async {\n                    self.catalogLoading = false\n                    self.catalogStatus = "Catalog DB: \\(error.localizedDescription)"\n'''
+          repl='''            } catch {\n                DispatchQueue.main.async {\n                    guard self.selectedExpansion == queryExpansion,\n                          self.catalogKind == kind,\n                          self.catalogPage == page else { return }\n                    self.catalogLoading = false\n                    self.catalogStatus = "Catalog DB: \\(error.localizedDescription)"\n'''
+          if marker not in s:
+              raise SystemExit('error guard marker not found')
+          s=s.replace(marker,repl,1)
+
+          p.write_text(s)
+
+          # Bump build.
+          b=Path('Build.command')
+          t=b.read_text()
+          import re
+          t=re.sub(r'<key>CFBundleShortVersionString</key><string>[^<]+</string>', '<key>CFBundleShortVersionString</key><string>1.5.70</string>', t, count=1)
+          t=re.sub(r'<key>CFBundleVersion</key><string>[^<]+</string>', '<key>CFBundleVersion</key><string>1570</string>', t, count=1)
+          b.write_text(t)
+
+          rel=Path('RELEASE-NOTES.md')
+          note='''# v1.5.70 — Full Catalog + Expansion Switch Race Fix\n\n- Removes hard-coded item-ID ranges that were clipping valid items from All Items and other collections.\n- All Items now queries every row in the selected profile's `item_template` database, with paging.\n- Adds expansion/category/page result guards so a slow query from the previous expansion can never populate the newly selected expansion screen.\n- Stale query errors are ignored for the same reason.\n- Existing collection filters, legendaries, sets, mounts, premium UI, and server controls remain intact.\n\n'''
+          r=rel.read_text()
+          if not r.startswith('# v1.5.70'):
+              rel.write_text(note+r)
+          PY
+
+          bash -n Build.command
+          bash -n Verify.command
+          find Scripts -type f -name '*.sh' -print0 | xargs -0 -n1 bash -n
+          python3 -m py_compile Scripts/*.py
+
+      - name: Commit fix
+        run: |
+          rm .github/workflows/apply-complete-catalog-race-fix.yml
+          git config user.name "WoWCC Automation"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "Fix full catalog loading and expansion switch race"
+          git push
