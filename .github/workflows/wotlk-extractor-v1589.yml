@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - 'Scripts/apply-v1589-wotlk-extractor-rescue.py'
+      - 'Scripts/prep-v1589-compat.py'
       - '.github/workflows/wotlk-extractor-v1589.yml'
 
 permissions:
@@ -16,10 +17,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Normalize current Prepare Client block
+        run: python3 Scripts/prep-v1589-compat.py
       - name: Apply WotLK extractor rescue
         run: python3 Scripts/apply-v1589-wotlk-extractor-rescue.py
       - name: Remove temporary patch files
-        run: rm -f Scripts/apply-v1589-wotlk-extractor-rescue.py .github/workflows/wotlk-extractor-v1589.yml
+        run: rm -f Scripts/apply-v1589-wotlk-extractor-rescue.py Scripts/prep-v1589-compat.py .github/workflows/wotlk-extractor-v1589.yml
       - name: Validate scripts and app
         run: |
           bash -n Scripts/install-profile.sh
