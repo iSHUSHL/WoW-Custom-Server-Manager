@@ -1,0 +1,43 @@
+name: WotLK MMAP Config v1590
+
+on:
+  push:
+    paths:
+      - 'Scripts/apply-v1590-wotlk-mmaps-config-fix.py'
+      - '.github/workflows/wotlk-mmaps-v1590.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-build-package:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply WotLK MMAP config fix
+        run: python3 Scripts/apply-v1590-wotlk-mmaps-config-fix.py
+      - name: Remove temporary patch files
+        run: rm -f Scripts/apply-v1590-wotlk-mmaps-config-fix.py .github/workflows/wotlk-mmaps-v1590.yml
+      - name: Validate scripts and app
+        run: |
+          bash -n Scripts/install-profile.sh
+          bash -n Scripts/prepare-client.sh
+          bash -n Build.command
+          grep -q 'mmaps_generator --config' Scripts/prepare-client.sh
+          grep -q 'mmaps-config.yaml' Scripts/install-profile.sh
+          swift build -c release
+      - name: Commit validated changes
+        run: |
+          git config user.name 'WoWCC Builder'
+          git config user.email 'actions@github.com'
+          git add -A
+          git commit -m 'Fix WotLK MMAP config handling (1.5.90)'
+          git push origin main
+      - name: Package source
+        run: git archive --format=zip --output=/tmp/WoWServerControlCenter-1.5.90-WotLKMMAPConfigFix.zip HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WoWServerControlCenter-1.5.90-WotLKMMAPConfigFix
+          path: /tmp/WoWServerControlCenter-1.5.90-WotLKMMAPConfigFix.zip
