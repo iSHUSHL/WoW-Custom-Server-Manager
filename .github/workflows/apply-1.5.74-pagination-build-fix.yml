@@ -1,0 +1,81 @@
+name: Apply 1.5.74 Pagination Build Fix
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/apply-1.5.74-pagination-build-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch pagination compile regression
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          sm = Path('Sources/WoWServerControlCenter/ServerModel.swift')
+          build = Path('Build.command')
+          rel = Path('RELEASE-NOTES.md')
+
+          s = sm.read_text()
+          old = '''        let page = 0
+                  catalogPage = 0
+                  let kind = catalogKind
+          '''
+          new = '''        let page = catalogPage
+                  let pageSize = catalogPageSize
+                  let kind = catalogKind
+          '''
+          if old not in s:
+              raise SystemExit('broken pagination block not found')
+          s = s.replace(old, new, 1)
+          if 'LIMIT \\(pageSize) OFFSET \\(offset);' not in s:
+              raise SystemExit('LIMIT/OFFSET pagination not found')
+          if 'let hasMore = offset + parsed.count < total' not in s:
+              raise SystemExit('hasMore pagination logic not found')
+          sm.write_text(s)
+
+          b = build.read_text()
+          b = re.sub(r'<key>CFBundleShortVersionString</key><string>[^<]+</string>', '<key>CFBundleShortVersionString</key><string>1.5.74</string>', b, count=1)
+          b = re.sub(r'<key>CFBundleVersion</key><string>[^<]+</string>', '<key>CFBundleVersion</key><string>1574</string>', b, count=1)
+          build.write_text(b)
+
+          note = '''# v1.5.74 — Paginated Catalog Build Fix
+
+          - Fixes the 1.5.73 compile failure by restoring `pageSize = catalogPageSize`.
+          - Restores the real current catalog page instead of forcing every request to page 1.
+          - Keeps SQL-side pagination at 250 matching rows per page with COUNT + LIMIT/OFFSET.
+          - Previous / Next browse the complete selected expansion catalog.
+          - Collection changes clear stale filters before loading the complete selected category.
+
+          '''
+          r = rel.read_text()
+          if not r.startswith('# v1.5.74'):
+              rel.write_text(note + r)
+          PY
+
+          chmod +x Build.command Verify.command
+          bash -n Build.command
+          bash -n Verify.command
+          find Scripts -type f -name '*.sh' -print0 | xargs -0 -n1 bash -n
+          python3 -m py_compile Scripts/*.py
+
+      - name: Commit fix
+        run: |
+          rm .github/workflows/apply-1.5.74-pagination-build-fix.yml
+          git config user.name "WoWCC Automation"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "Fix paginated catalog build regression"
+          git push
