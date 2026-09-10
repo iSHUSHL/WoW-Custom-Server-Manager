@@ -1790,23 +1790,12 @@ final class ServerModel: ObservableObject {
     }
 
 
-    private var expansionItemEntryClause: String {
-        switch selectedExpansion {
-        case .vanilla: return "entry BETWEEN 1 AND 24282"
-        case .tbc: return "entry BETWEEN 24283 AND 35599"
-        case .wotlk: return "entry BETWEEN 35600 AND 56805"
-        case .cataclysm: return "entry BETWEEN 56806 AND 79999"
-        case .mop: return "entry BETWEEN 80000 AND 109999"
-        default: return "1=1"
-        }
-    }
-
     private func catalogWhereClause(kind: CatalogKind, search: String) -> String {
         let escaped = search
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "'", with: "\\'")
 
-        var clauses: [String] = [expansionItemEntryClause]
+        var clauses: [String] = ["1=1"]
 
         switch kind {
         case .raidSet:
@@ -1865,6 +1854,13 @@ final class ServerModel: ObservableObject {
                  OR name LIKE '%Gryphon%'
                  OR name LIKE '%Wind Rider%'
                  OR name LIKE '%Mechanostrider%'
+                 OR name LIKE '%Ram%'
+                 OR name LIKE '%Wolf%'
+                 OR name LIKE '%Horse%'
+                 OR name LIKE '%Tiger%'
+                 OR name LIKE '%Battle Tank%'
+                 OR name LIKE '%Resonating Crystal%'
+                 OR name LIKE '%Phoenix%'
                  OR name LIKE '%Mammoth%'
                  OR name LIKE '%Frostsaber%'
                  OR name LIKE '%Nightsaber%'
@@ -2022,16 +2018,12 @@ final class ServerModel: ObservableObject {
     func loadMountCollection(resetFilters: Bool = false) {
         catalogKind = .mount
 
-        // Mounts hides class/slot/min-iLvl controls, so those filters must
-        // never silently carry over from another collection or expansion.
+        // Mounts is a complete era catalog. Never carry hidden filters into it.
         equipSlotFilter = .all
         playerClassFilter = .all
         minimumItemLevel = ""
-
-        if resetFilters {
-            searchText = ""
-            itemQualityFilter = .all
-        }
+        itemQualityFilter = .all
+        if resetFilters { searchText = "" }
 
         loadCatalogPage(reset:true)
     }
@@ -2131,7 +2123,7 @@ final class ServerModel: ObservableObject {
         let db = worldDatabaseName
         let port = mysqlPort
         let expansion = selectedExpansion
-        let expansionClause = expansionItemEntryClause
+        let expansionClause = "1=1"
 
         gearSetsLoading = true
         gearSetStatus = "Loading realm item sets…"

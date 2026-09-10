@@ -1,3 +1,12 @@
+# v1.5.75 — TBC Complete Catalog Restore
+
+- Removes hard-coded item-ID era ranges from Collection Browser and Gear Sets.
+- TBC now reads every item and every DB-defined item set available in its own `mangos.item_template`, including Classic content still valid in 2.4.3.
+- Restores complete TBC Raid Sets, Epic+ results, Legendaries, All Items, and Mounts.
+- Mounts always clear hidden quality/class/slot/iLvl filters before loading.
+- Broadens mount-name fallback for unusual/custom CMaNGOS rows while retaining the native Misc/Mount classification.
+- Keeps paging, class filters, item icons, tooltips, Give actions, PlayerBots, premium UI, and existing server controls intact.
+
 # v1.5.69 — Expansion-Isolated Complete Collections
 
 - Vanilla, TBC, WotLK, Cataclysm and MoP collections are isolated by item era so cumulative later DBs do not mix older-expansion items into the selected expansion.
