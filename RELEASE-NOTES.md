@@ -1,3 +1,10 @@
+# v1.5.76 — Clean ZIP / Missing Runtime Build Fix
+
+- Fixes `Build.command` failing after a successful Swift compile when the source package has no top-level `runtime/` directory.
+- The app bundle now creates `runtime-template` unconditionally and copies source runtime data only when that optional folder exists.
+- A missing source runtime template is informational, not a build failure.
+- Preserves the complete TBC catalog fixes from 1.5.75.
+
 # v1.5.75 — TBC Complete Catalog Restore
 
 - Removes hard-coded item-ID era ranges from Collection Browser and Gear Sets.
