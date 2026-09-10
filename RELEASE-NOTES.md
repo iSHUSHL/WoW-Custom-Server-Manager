@@ -1,3 +1,10 @@
+# v1.5.88 — WotLK PlayerBots Clone + Extractor Repair
+
+- Fixed false “mod-playerbots clone is incomplete” failure: current upstream module has no root CMakeLists.txt.
+- Validates the real PlayerBots payload and automatically reclones an interrupted checkout.
+- Verifies all four WotLK extractor binaries immediately after core compilation.
+- Keeps WotLK PlayerBots population range up to 5,000.
+
 # v1.5.87 — WotLK Extractor Recovery
 
 - Fixes Prepare Client falsely reporting a missing `mapextractor` after a successful WotLK/PlayerBots core rebuild.
