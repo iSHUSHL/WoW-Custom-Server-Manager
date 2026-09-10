@@ -1,3 +1,12 @@
+# v1.5.86 — WotLK PlayerBots
+
+- Added managed WotLK PlayerBots using the compatible Playerbot AzerothCore fork plus `mod-playerbots`.
+- PlayerBots page now supports both TBC and WotLK.
+- Bot population range is 10–5,000 with a safe default of 150 and quick presets through 5,000.
+- Added WotLK `acore_playerbots` database bootstrap, repeatable SQL migrations, managed `playerbots.conf`, live bot counts, and one-click initialization.
+- WotLK PlayerBots setup logs are written to `playerbots-setup.log` and automatically appear in WoWCC Logs.
+- Existing WotLK realm/client data is preserved when rebuilding the compatible PlayerBots core.
+
 # v1.5.85 — Cataclysm Client DB2 Extraction Fix
 
 - Makes Cataclysm mapextractor mandatory instead of silently ignoring a missing/failed extractor.

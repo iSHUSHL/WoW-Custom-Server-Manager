@@ -48,7 +48,7 @@ enum ExpansionID: String, CaseIterable, Codable, Identifiable {
         switch self {
         case .vanilla: return "CMaNGOS Classic"
         case .tbc: return "CMaNGOS TBC"
-        case .wotlk: return "AzerothCore"
+        case .wotlk: return "AzerothCore Playerbot fork + mod-playerbots"
         case .cataclysm: return "Cataclysm Preservation TrinityCore 4.3.4"
         case .mop: return "Project SkyFire 5.4.8"
         default: return "Imported compatible core"

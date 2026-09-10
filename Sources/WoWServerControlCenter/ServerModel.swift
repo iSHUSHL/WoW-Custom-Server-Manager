@@ -200,7 +200,13 @@ final class ServerModel: ObservableObject {
 
     var mysqlRuntimeInstalled: Bool { locateMySQL("mysqld") != nil && locateMySQL("mysql") != nil }
     var profileInstalled: Bool { FileManager.default.isExecutableFile(atPath: worldBinary.path) }
-    var playerBotsReady: Bool { selectedExpansion == .tbc && FileManager.default.fileExists(atPath: profileRoot.appendingPathComponent(".playerbots-ready").path) && FileManager.default.fileExists(atPath: profileRoot.appendingPathComponent("configs/aiplayerbot.conf").path) }
+    var playerBotsSupported: Bool { selectedExpansion == .tbc || selectedExpansion == .wotlk }
+    var playerBotsReady: Bool {
+        guard playerBotsSupported else { return false }
+        let configName = selectedExpansion == .wotlk ? "configs/playerbots.conf" : "configs/aiplayerbot.conf"
+        return FileManager.default.fileExists(atPath: profileRoot.appendingPathComponent(".playerbots-ready").path) &&
+               FileManager.default.fileExists(atPath: profileRoot.appendingPathComponent(configName).path)
+    }
     var clientConfigured: Bool { !clientPath.isEmpty && FileManager.default.fileExists(atPath: clientPath) }
     var runtimeDependenciesReady: Bool {
         let baseReady = locateMySQL("mysqld") != nil && locateMySQL("mysql") != nil && locateCommand("git") != nil && locateCommand("cmake") != nil && locateCommand("make") != nil
@@ -623,21 +629,21 @@ final class ServerModel: ObservableObject {
     }
     func installSelectedProfile() { runScript("install-profile.sh", args: [selectedExpansion.rawValue]) }
     func installOrRepairPlayerBots() {
-        guard selectedExpansion == .tbc else { statusMessage = "PlayerBots world population is currently wired for TBC only"; return }
-        guard profileInstalled else { statusMessage = "Build the TBC core first. Rebuild Core + PlayerBots compiles the module."; return }
+        guard playerBotsSupported else { statusMessage = "PlayerBots are available for TBC and WotLK."; return }
+        guard profileInstalled else { statusMessage = "Build the \(selectedExpansion.shortTitle) core with PlayerBots first."; return }
         stopAll()
         Task {
             do {
-                statusMessage = "Starting database for PlayerBots setup…"
+                statusMessage = "Starting database for \(selectedExpansion.shortTitle) PlayerBots setup…"
                 try await startMySQL()
                 try configureDatabaseAccess()
                 savePlayerBotSettings()
-                let requestedBots = playerBotPopulation
-                let stableBots = requestedBots
-                if requestedBots > stableBots {
-                    statusMessage = "Applying PlayerBots stability cap: \(requestedBots) requested → \(stableBots) simultaneous. Existing bot characters are preserved."
+                let bots = min(5000, max(10, playerBotPopulation))
+                if selectedExpansion == .wotlk {
+                    runScript("setup-playerbots-wotlk.sh", args: ["wotlk", "\(bots)", playerBotsEnabled ? "1" : "0", playerBotsBattlegrounds ? "1" : "0", playerBotsQuesting ? "1" : "0", playerBotCreationSpeed.lowercased()])
+                } else {
+                    runScript("setup-playerbots.sh", args: ["tbc", "\(bots)", playerBotsEnabled ? "1" : "0", playerBotsBattlegrounds ? "1" : "0", playerBotsQuesting ? "1" : "0", playerBotCreationSpeed.lowercased()])
                 }
-                runScript("setup-playerbots.sh", args: ["tbc", "\(stableBots)", playerBotsEnabled ? "1" : "0", playerBotsBattlegrounds ? "1" : "0", playerBotsQuesting ? "1" : "0", playerBotCreationSpeed.lowercased()])
             } catch { statusMessage = "PlayerBots setup failed: \(error.localizedDescription)" }
         }
     }
@@ -776,17 +782,23 @@ final class ServerModel: ObservableObject {
     }
 
     private func ensurePlayerBotRuntimeConfig() throws {
-        guard selectedExpansion == .tbc else { return }
+        guard playerBotsSupported && playerBotsReady else { return }
         let fm = FileManager.default
         let configDir = profileRoot.appendingPathComponent("configs", isDirectory: true)
-        let etcDir = profileRoot.appendingPathComponent("etc", isDirectory: true)
-        try fm.createDirectory(at: etcDir, withIntermediateDirectories: true)
-        let configured = configDir.appendingPathComponent("aiplayerbot.conf")
-        let runtime = etcDir.appendingPathComponent("aiplayerbot.conf")
-
+        let configured: URL
+        let runtime: URL
+        if selectedExpansion == .wotlk {
+            let modulesDir = profileRoot.appendingPathComponent("etc/modules", isDirectory: true)
+            try fm.createDirectory(at: modulesDir, withIntermediateDirectories: true)
+            configured = configDir.appendingPathComponent("playerbots.conf")
+            runtime = modulesDir.appendingPathComponent("playerbots.conf")
+        } else {
+            let etcDir = profileRoot.appendingPathComponent("etc", isDirectory: true)
+            try fm.createDirectory(at: etcDir, withIntermediateDirectories: true)
+            configured = configDir.appendingPathComponent("aiplayerbot.conf")
+            runtime = etcDir.appendingPathComponent("aiplayerbot.conf")
+        }
         if fm.fileExists(atPath: configured.path) {
-            // SYSCONFDIR is ../etc/ for CMaNGOS when mangosd runs from profile/bin.
-            // Always synchronize before launch so GUI settings and runtime cannot diverge.
             if fm.fileExists(atPath: runtime.path) { try fm.removeItem(at: runtime) }
             try fm.copyItem(at: configured, to: runtime)
         } else if !fm.fileExists(atPath: runtime.path) {
@@ -797,7 +809,7 @@ final class ServerModel: ObservableObject {
     private func waitForWorldReadyPlayerBotsAware() async throws {
         // First PlayerBots launch builds large item/equipment caches before opening 8085.
         // Official PlayerBots documentation explicitly warns first startup takes time.
-        let timeoutSeconds = selectedExpansion == .tbc ? 900 : 30
+        let timeoutSeconds = playerBotsReady ? 900 : 30
         let iterations = max(1, timeoutSeconds * 4)
         for tick in 0..<iterations {
             if portOpen(worldPort) { return }
@@ -806,7 +818,7 @@ final class ServerModel: ObservableObject {
                 throw err("\(worldBinaryName) exited during startup. \(tail)")
             }
 
-            if selectedExpansion == .tbc && tick % 4 == 0 {
+            if playerBotsReady && tick % 4 == 0 {
                 let tail = lastLogLines("worldserver.log", count: 8)
                 if let range = tail.range(of: #"\[[* ]+\]\s*([0-9]{1,3})%"#, options: .regularExpression) {
                     let progress = String(tail[range])
@@ -828,7 +840,7 @@ final class ServerModel: ObservableObject {
         // PlayerBots has substantial startup state. Automatically relaunching
         // mangosd after a genuine TBC crash creates a cache/init/relogin loop.
         // Never auto-restart TBC World; keep it stopped and surface the failure.
-        if selectedExpansion == .tbc {
+        if playerBotsReady {
             if world?.isRunning == true || portOpen(worldPort) {
                 worldRunning = true
             } else if worldRunning {
@@ -1464,9 +1476,9 @@ final class ServerModel: ObservableObject {
     }
 
     func refreshPlayerBotStats() {
-        guard selectedExpansion == .tbc else {
+        guard playerBotsSupported else {
             playerBotAccountsLive = 0; playerBotCharactersLive = 0; playerBotsOnlineLive = 0
-            playerBotStatsStatus = "TBC only"
+            playerBotStatsStatus = "TBC / WotLK only"
             return
         }
         do {
@@ -1477,39 +1489,32 @@ final class ServerModel: ObservableObject {
             playerBotAccountsLive = Int(accountsText.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
             playerBotCharactersLive = Int(charsText.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
             playerBotsOnlineLive = Int(onlineText.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
-            let runtimeConf = profileRoot.appendingPathComponent("etc/aiplayerbot.conf")
-            let configuredConf = profileRoot.appendingPathComponent("configs/aiplayerbot.conf")
+            let runtimeConf = selectedExpansion == .wotlk
+                ? profileRoot.appendingPathComponent("etc/modules/playerbots.conf")
+                : profileRoot.appendingPathComponent("etc/aiplayerbot.conf")
+            let configuredConf = selectedExpansion == .wotlk
+                ? profileRoot.appendingPathComponent("configs/playerbots.conf")
+                : profileRoot.appendingPathComponent("configs/aiplayerbot.conf")
             let runtimeText = try? String(contentsOf: runtimeConf, encoding: .utf8)
             let configuredText = try? String(contentsOf: configuredConf, encoding: .utf8)
             let enabledPattern = #"(?m)^\s*AiPlayerbot\.Enabled\s*=\s*1\s*$"#
-            playerBotRuntimeConfigOK =
-                runtimeText?.range(of: enabledPattern, options: .regularExpression) != nil ||
-                configuredText?.range(of: enabledPattern, options: .regularExpression) != nil
+            playerBotRuntimeConfigOK = runtimeText?.range(of: enabledPattern, options: .regularExpression) != nil || configuredText?.range(of: enabledPattern, options: .regularExpression) != nil
             let migrationText = try? client.query(database: characterDatabaseName, sql: "SELECT COUNT(*) FROM wowcc_playerbots_migrations;")
             playerBotModuleSQLCount = Int(migrationText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "") ?? 0
-            if !playerBotRuntimeConfigOK {
-                playerBotStatsStatus = "Runtime config missing"
-            } else if playerBotModuleSQLCount == 0 {
-                playerBotStatsStatus = "PlayerBots SQL missing"
-            } else if worldRunning && playerBotsOnlineLive == 0 {
-                playerBotStatsStatus = "Ready, but 0 online — initialize bots"
-            } else {
-                playerBotStatsStatus = worldRunning ? "LIVE" : "World stopped"
-            }
-        } catch {
-            playerBotStatsStatus = "Stats unavailable"
-        }
+            if !playerBotRuntimeConfigOK { playerBotStatsStatus = "Runtime config missing" }
+            else if playerBotModuleSQLCount == 0 { playerBotStatsStatus = "PlayerBots SQL missing" }
+            else if worldRunning && playerBotsOnlineLive == 0 { playerBotStatsStatus = "Ready, but 0 online — initialize bots" }
+            else { playerBotStatsStatus = worldRunning ? "LIVE" : "World stopped" }
+        } catch { playerBotStatsStatus = "Stats unavailable" }
     }
 
     func initializePlayerBots() {
-        guard selectedExpansion == .tbc else { statusMessage = "PlayerBots initialization is TBC only."; return }
+        guard playerBotsSupported else { statusMessage = "PlayerBots are available for TBC and WotLK."; return }
+        guard playerBotsReady else { statusMessage = "Populate / Repair PlayerBots first."; return }
         guard worldRunning || world?.isRunning == true else { statusMessage = "Start World Server first."; return }
-
-        // One-shot initialization only. Do NOT immediately issue rndbot update:
-        // the random-bot manager already performs its own scheduled updates and
-        // forcing an update after init can cause unnecessary population churn.
-        statusMessage = "Initializing random PlayerBots once…"
-        sendAdminCommand("rndbot init", success: "PlayerBots one-time initialization requested")
+        statusMessage = "Initializing \(selectedExpansion.shortTitle) random PlayerBots once…"
+        let command = selectedExpansion == .wotlk ? "playerbots rndbot init" : "rndbot init"
+        sendAdminCommand(command, success: "\(selectedExpansion.shortTitle) PlayerBots initialization requested")
         DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) { self.refreshPlayerBotStats() }
     }
 

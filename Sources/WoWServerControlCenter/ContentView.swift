@@ -468,18 +468,18 @@ struct ContentView: View {
             HStack {
                 VStack(alignment:.leading,spacing:5) {
                     Text("PlayerBots").font(.largeTitle.bold())
-                    Text("Populate TBC with AI adventurers that quest, group, form guilds and join PvP.").foregroundStyle(.secondary)
+                    Text(model.selectedExpansion == .wotlk ? "Populate WotLK with AI adventurers that quest, group, raid and join PvP." : "Populate TBC with AI adventurers that quest, group, form guilds and join PvP.").foregroundStyle(.secondary)
                 }
                 Spacer()
                 Text(model.playerBotsReady ? "WORLD POPULATION READY" : "SETUP REQUIRED").font(.caption.bold())
                     .padding(.horizontal,10).padding(.vertical,6)
                     .background((model.playerBotsReady ? Color.green : Color.orange).opacity(0.15),in:Capsule())
             }
-            if model.selectedExpansion != .tbc {
-                GroupBox("TBC PlayerBots") { Text("Select The Burning Crusade in Expansion Manager. WoWCC currently enables the official CMaNGOS PlayerBots module for TBC.").foregroundStyle(.secondary).padding(8) }
+            if !model.playerBotsSupported {
+                GroupBox("PlayerBots") { Text("Select The Burning Crusade or Wrath of the Lich King. WoWCC manages CMaNGOS PlayerBots for TBC and mod-playerbots for WotLK.").foregroundStyle(.secondary).padding(8) }
             } else {
                 HStack(spacing:12) {
-                    statusCard("Core Module",model.profileInstalled,"BUILD_PLAYERBOTS=ON")
+                    statusCard("Core Module",model.profileInstalled,model.selectedExpansion == .wotlk ? "AzerothCore Playerbot fork + mod-playerbots" : "BUILD_PLAYERBOTS=ON")
                     statusCard("Bot Database",model.playerBotsReady,model.playerBotsReady ? "PlayerBots database/config installed" : "Click Populate / Repair World")
                     statusCard("Target Population",model.playerBotsEnabled,"\(model.playerBotPopulation) AI players")
                 }
@@ -501,7 +501,7 @@ struct ContentView: View {
                         HStack {
                             Text("Online bots").frame(width:90,alignment:.leading)
                             Stepper(value:$model.playerBotPopulation,in:10...5000,step:50) { Text("\(model.playerBotPopulation)").font(.title3.bold()).frame(width:70,alignment:.leading) }
-                            ForEach([250,500,1000,2000,5000], id: \.self) { count in
+                            ForEach([50,150,250,500,1000,2000,3000,5000], id: \.self) { count in
                                 if model.playerBotPopulation == count {
                                     Button("\(count)") { model.setPlayerBotPreset(count) }
                                         .buttonStyle(.borderedProminent)
@@ -528,14 +528,14 @@ struct ContentView: View {
                 }
                 GroupBox("Make The World Alive") {
                     VStack(alignment:.leading,spacing:10) {
-                        Text("Rebuild the TBC core once to compile the official PlayerBots module, then populate the existing realm database and config.").foregroundStyle(.secondary)
+                        Text(model.selectedExpansion == .wotlk ? "Rebuild WotLK once to switch to the compatible AzerothCore Playerbot fork and compile mod-playerbots, then populate its bot database/config. Existing WoWCC realm/client data is preserved." : "Rebuild the TBC core once to compile the official PlayerBots module, then populate the existing realm database and config.").foregroundStyle(.secondary)
                         HStack {
                             Button(model.profileInstalled ? "Rebuild Core + PlayerBots" : "Install Core + PlayerBots") { model.installSelectedProfile() }.buttonStyle(.bordered).disabled(model.operationActive)
                             Button("Populate / Repair World") { model.installOrRepairPlayerBots() }.buttonStyle(.borderedProminent).disabled(model.operationActive || !model.profileInstalled)
                             Button("Apply Bot Settings") { model.applyPlayerBotSettings() }.disabled(model.operationActive || !model.profileInstalled)
                             Button("Initialize Bots") { model.initializePlayerBots() }.disabled(model.operationActive || !model.worldRunning)
                         }
-                        Text("After Populate / Repair World, restart World Server. First PlayerBots startup can be heavy; WoWCC keeps mangosd alive, treats the process itself as authoritative during load, and automatically restarts World up to 3 times if it truly exits unexpectedly. Existing accounts and characters are preserved.").font(.caption).foregroundStyle(.secondary)
+                        Text("After Populate / Repair World, restart World Server and initialize bots once. First startup can be heavy. WoWCC allows up to 5,000 configured bots, defaults to 150, and preserves existing player accounts/characters. Increase large populations gradually.").font(.caption).foregroundStyle(.secondary)
                     }.padding(8)
                 }
             }

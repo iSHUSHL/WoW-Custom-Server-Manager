@@ -15,8 +15,9 @@ trap 'fail "Core install failed at line $LINENO while running: $BASH_COMMAND"' E
 # GUI applications do not inherit the user's interactive shell environment.
 export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
 
+BRANCH=""
 case "$PROFILE" in
-  wotlk) REPO="https://github.com/azerothcore/azerothcore-wotlk.git" ;;
+  wotlk) REPO="https://github.com/mod-playerbots/azerothcore-wotlk.git"; BRANCH="Playerbot" ;;
   vanilla) REPO="https://github.com/cmangos/mangos-classic.git" ;;
   tbc) REPO="https://github.com/cmangos/mangos-tbc.git" ;;
   cataclysm) REPO="https://github.com/The-Cataclysm-Preservation-Project/TrinityCore.git" ;;
@@ -55,11 +56,36 @@ fi
 
 if [[ ! -d "$SRC_ROOT/.git" ]]; then
   rm -rf "$SRC_ROOT"
-  git clone --depth 1 --recursive "$REPO" "$SRC_ROOT"
+  if [[ -n "$BRANCH" ]]; then
+    git clone --depth 1 --single-branch --branch "$BRANCH" --recursive "$REPO" "$SRC_ROOT"
+  else
+    git clone --depth 1 --recursive "$REPO" "$SRC_ROOT"
+  fi
 else
-  git -C "$SRC_ROOT" fetch --depth 1 origin
-  git -C "$SRC_ROOT" reset --hard origin/HEAD
+  if [[ -n "$BRANCH" ]]; then
+    git -C "$SRC_ROOT" fetch --depth 1 origin "$BRANCH"
+    git -C "$SRC_ROOT" reset --hard "origin/$BRANCH"
+  else
+    git -C "$SRC_ROOT" fetch --depth 1 origin
+    git -C "$SRC_ROOT" reset --hard origin/HEAD
+  fi
   git -C "$SRC_ROOT" submodule update --init --recursive
+fi
+
+# WotLK PlayerBots requires the maintained Playerbot AzerothCore fork plus the module.
+if [[ "$PROFILE" == "wotlk" ]]; then
+  WOTLK_BOTS_DIR="$SRC_ROOT/modules/mod-playerbots"
+  WOTLK_BOTS_REPO="https://github.com/mod-playerbots/mod-playerbots.git"
+  log "Preparing WotLK mod-playerbots module…"
+  if [[ -d "$WOTLK_BOTS_DIR/.git" ]]; then
+    git -C "$WOTLK_BOTS_DIR" fetch --depth 1 origin master
+    git -C "$WOTLK_BOTS_DIR" reset --hard origin/master
+  else
+    rm -rf "$WOTLK_BOTS_DIR"
+    git clone --depth 1 --single-branch --branch master "$WOTLK_BOTS_REPO" "$WOTLK_BOTS_DIR"
+  fi
+  [[ -f "$WOTLK_BOTS_DIR/CMakeLists.txt" ]] || fail "WotLK mod-playerbots clone is incomplete: $WOTLK_BOTS_DIR"
+  log "WotLK PlayerBots source ready (Playerbot fork + mod-playerbots)."
 fi
 
 # Official CMaNGOS PlayerBots module. Keep it inside the core tree where
@@ -547,6 +573,17 @@ for base in authserver worldserver realmd mangosd; do
   found="$(find "$PROFILE_ROOT" "$BUILD" "$SRC_ROOT" -type f \( -name "$base.conf.dist" -o -name "$base.conf" \) 2>/dev/null | head -n1 || true)"
   [[ -n "$found" ]] && cp -f "$found" "$PROFILE_ROOT/configs/$base.conf"
 done
+
+if [[ "$PROFILE" == "wotlk" ]]; then
+  BOT_DIST="$(find "$PROFILE_ROOT" "$BUILD" "$SRC_ROOT/modules/mod-playerbots" -type f -name 'playerbots.conf.dist' 2>/dev/null | head -n1 || true)"
+  if [[ -n "$BOT_DIST" ]]; then
+    mkdir -p "$PROFILE_ROOT/configs" "$PROFILE_ROOT/etc/modules"
+    [[ -f "$PROFILE_ROOT/configs/playerbots.conf" ]] || cp -f "$BOT_DIST" "$PROFILE_ROOT/configs/playerbots.conf"
+    cp -f "$PROFILE_ROOT/configs/playerbots.conf" "$PROFILE_ROOT/etc/modules/playerbots.conf"
+    log "Installed WotLK playerbots.conf; use the PlayerBots page to tune population."
+  fi
+  [[ -f "$PROFILE_ROOT/configs/playerbots.conf" ]] || fail "WotLK PlayerBots built but playerbots.conf was not found after install"
+fi
 
 if [[ "$PROFILE" == "tbc" ]]; then
   BOT_DIST="$(find "$PROFILE_ROOT" "$BUILD" "$SRC_ROOT/src/modules/Bots" -type f -name 'aiplayerbot.conf.dist' 2>/dev/null | head -n1 || true)"
