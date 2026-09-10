@@ -1,3 +1,13 @@
+# v1.5.81 — Premium Header & Navigation Redesign
+
+- Replaced the duplicated app-name treatment with a single premium brand header.
+- Sidebar now uses the app/Dock icon as the visual identity without repeating the app name.
+- Added a cinematic dark-gold hero treatment with realm status and expansion context.
+- Replaced the plain expansion picker with five premium expansion cards for Vanilla, TBC, WotLK, Cataclysm and MoP.
+- Consolidated Repair / Start / Start & Play / Stop into a premium action rail.
+- Added compact version/build treatment to the sidebar footer.
+- Preserved all existing sections and server-management behavior.
+
 # v1.5.80 — Tooltip Auto-Fit
 
 - Removed the unusable tooltip ScrollView/scrollbar from the mouse-transparent floating panel.
