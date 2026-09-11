@@ -1,3 +1,13 @@
+# v1.6.3 — True Expansion Isolation / Active Realm Lock
+
+- Enforces one active WoW expansion profile at a time across Vanilla, TBC, WotLK, Cataclysm and MoP.
+- Adds a persistent Active Realm Lock under WoWCC runtime state.
+- Any Start first stops WoWCC-managed server processes from all other profiles, then claims the selected expansion as the only active profile.
+- World watchdog may auto-restart only when the selected profile owns the Active Realm Lock.
+- Stop All removes the lock and permanently cancels automatic restart until an explicit Start.
+- Stop World / Stop Realm cancel watchdog intent so a stopped TBC/Vanilla/WotLK server cannot silently start itself again.
+- Switching expansion clears stale active-profile state before rebuilding process controllers.
+
 # v1.6.2 — Cross-Expansion Server Cleanup
 
 - Fixes stale TBC/Vanilla `realmd` and `mangosd` processes surviving while WotLK is selected.

@@ -8,6 +8,9 @@ final class ServerModel: ObservableObject {
         didSet {
             guard selectedExpansion != oldValue else { return }
             saveExpansion()
+            desiredWorldRunning = false
+            worldWatchdogRestartInProgress = false
+            try? FileManager.default.removeItem(at: dataRoot.appendingPathComponent("runtime/active-realm-profile"))
             stopAll()
             loadProfileSettings()
             lanAccessEnabled = UserDefaults.standard.bool(forKey: profileKey("lanAccess"))
@@ -1027,8 +1030,34 @@ final class ServerModel: ObservableObject {
         throw err("\(worldBinaryName) is still running but did not open port \(worldPort) within \(timeoutSeconds / 60) minutes. \(tail)")
     }
 
+    private var activeRealmLockURL: URL {
+        dataRoot.appendingPathComponent("runtime/active-realm-profile")
+    }
+
+    private func readActiveRealmLock() -> String? {
+        guard let text = try? String(contentsOf: activeRealmLockURL, encoding: .utf8) else { return nil }
+        let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
+    }
+
+    private func claimActiveRealmLock() throws {
+        let fm = FileManager.default
+        try fm.createDirectory(at: activeRealmLockURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try (selectedExpansion.rawValue + "\n").write(to: activeRealmLockURL, atomically: true, encoding: .utf8)
+    }
+
+    private func releaseActiveRealmLockIfOwned() {
+        guard readActiveRealmLock() == selectedExpansion.rawValue else { return }
+        try? FileManager.default.removeItem(at: activeRealmLockURL)
+    }
+
+    private func selectedExpansionOwnsActiveRealmLock() -> Bool {
+        readActiveRealmLock() == selectedExpansion.rawValue
+    }
+
     private func keepWorldAliveIfRequested() async {
         guard desiredWorldRunning,
+              selectedExpansionOwnsActiveRealmLock(),
               !worldWatchdogRestartInProgress else { return }
 
         // PlayerBots has substantial startup state. Automatically relaunching
@@ -1096,11 +1125,13 @@ final class ServerModel: ObservableObject {
     }
 
     func startAll() {
-        desiredWorldRunning = true
+        desiredWorldRunning = false
         Task {
             do {
                 try ensureCompatibilityAlias()
                 try stopStaleServersFromOtherExpansions()
+                try claimActiveRealmLock()
+                desiredWorldRunning = true
                 try repairCMaNGOSDatabaseConfigIfNeeded()
 
                 statusMessage = "1/3 Starting managed MySQL 8.4…"
@@ -1145,6 +1176,8 @@ final class ServerModel: ObservableObject {
                     worldRunning = true
                     statusMessage = "World Server is still initializing — process is alive"
                 } else {
+                    desiredWorldRunning = false
+                    releaseActiveRealmLockIfOwned()
                     statusMessage = "Start failed: \(error.localizedDescription)"
                 }
             }
@@ -1155,6 +1188,7 @@ final class ServerModel: ObservableObject {
     func stopAll() {
         desiredWorldRunning = false
         worldWatchdogRestartInProgress = false
+        releaseActiveRealmLockIfOwned()
         world?.stop(); auth?.stop(); mysql?.stop()
         statusMessage = "Server stopped"
         refresh()
@@ -1167,6 +1201,7 @@ final class ServerModel: ObservableObject {
     func stopWorldServer() {
         desiredWorldRunning = false
         worldWatchdogRestartInProgress = false
+        if !authRunning { releaseActiveRealmLockIfOwned() }
         world?.stop()
         worldRunning = false
         statusMessage = "World Server stopped"
@@ -1174,11 +1209,13 @@ final class ServerModel: ObservableObject {
     }
 
     func startWorldServer() {
-        desiredWorldRunning = true
+        desiredWorldRunning = false
         Task {
             do {
                 try ensureCompatibilityAlias()
                 try stopStaleServersFromOtherExpansions()
+                try claimActiveRealmLock()
+                desiredWorldRunning = true
                 try repairCMaNGOSDatabaseConfigIfNeeded()
                 guard portOpen(Int32(mysqlPort)) else { throw err("MySQL must be running before World Server.") }
                 guard realmDatabaseReady || probeRealmDatabaseReady() else { throw err("Realm database is not ready.") }
@@ -1220,8 +1257,11 @@ final class ServerModel: ObservableObject {
     }
 
     func stopRealmServer() {
+        desiredWorldRunning = false
+        worldWatchdogRestartInProgress = false
         auth?.stop()
         authRunning = false
+        if !worldRunning { releaseActiveRealmLockIfOwned() }
         statusMessage = "Realm Server stopped"
         DispatchQueue.main.asyncAfter(deadline: .now()+0.5) { self.refresh() }
     }
@@ -1231,6 +1271,7 @@ final class ServerModel: ObservableObject {
             do {
                 try ensureCompatibilityAlias()
                 try stopStaleServersFromOtherExpansions()
+                try claimActiveRealmLock()
                 try repairCMaNGOSDatabaseConfigIfNeeded()
                 guard portOpen(Int32(mysqlPort)) else { throw err("MySQL must be running before Realm Server.") }
                 guard realmDatabaseReady || probeRealmDatabaseReady() else { throw err("Realm database is not ready.") }
