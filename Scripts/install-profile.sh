@@ -357,7 +357,20 @@ PY
   log "Cataclysm source patched for native arm64 / modern macOS / GNU Readline."
 fi
 
-rm -rf "$BUILD"
+# WotLK builds are large. Preserve a valid Ninja build tree so an interrupted
+# rebuild resumes from already compiled objects instead of restarting at 0%.
+if [[ "$PROFILE" == "wotlk" && -f "$BUILD/CMakeCache.txt" ]]; then
+  CACHE_GENERATOR="$(grep '^CMAKE_GENERATOR:INTERNAL=' "$BUILD/CMakeCache.txt" 2>/dev/null | cut -d= -f2- || true)"
+  CACHE_SOURCE="$(grep '^CMAKE_HOME_DIRECTORY:INTERNAL=' "$BUILD/CMakeCache.txt" 2>/dev/null | cut -d= -f2- || true)"
+  if [[ "$CACHE_GENERATOR" == "Ninja" && "$CACHE_SOURCE" == "$SRC_ROOT" ]]; then
+    log "Resuming existing WotLK Ninja build cache — completed objects will be reused."
+  else
+    log "WotLK build cache is incompatible; recreating it once."
+    rm -rf "$BUILD"
+  fi
+else
+  rm -rf "$BUILD"
+fi
 mkdir -p "$BUILD"
 
 JOBS="$(sysctl -n hw.logicalcpu 2>/dev/null || echo 4)"

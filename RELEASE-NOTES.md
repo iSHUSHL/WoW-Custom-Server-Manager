@@ -1,3 +1,12 @@
+# v1.6.10 — Resumable WotLK Build + Real Ninja Progress
+
+- WotLK rebuilds now preserve a compatible Ninja build directory and resume already compiled objects after an interruption instead of restarting from 0%.
+- Build watchdog understands Ninja progress such as `[105/1766]` and reports both object count and calculated percentage.
+- Heartbeats are emitted every 2 seconds with elapsed time, quiet time, compiler CPU, and the active compiler command.
+- WoWCC GUI prefers watchdog heartbeat lines while a core build is active, so a long C++ translation unit no longer looks frozen.
+- A build is terminated only after 2+ minutes without output AND repeated near-zero CPU checks; an actively compiling clang process is never killed simply for taking time.
+- WotLK remains on Ninja with 2 jobs, server/tools split, PlayerBots, WrathSilicon client prep, and flying-everywhere support.
+
 # v1.6.9 — WotLK Server/Extractor Build Split
 
 - Fixes repeated WotLK rebuild stalls at 0–3% in Recast, Detour and g3dlite by removing map extractor tools from the main authserver/worldserver + PlayerBots build.

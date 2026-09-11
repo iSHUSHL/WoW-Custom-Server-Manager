@@ -3512,9 +3512,11 @@ final class ServerModel: ObservableObject {
             guard !data.isEmpty else { return }
             try? logHandle?.write(contentsOf: data)
             if let chunk = String(data: data, encoding: .utf8) {
-                let lastLine = chunk.split(separator: "\n").last.map(String.init) ?? chunk
+                let lines = chunk.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
+                let heartbeat = lines.reversed().first { $0.contains("WoWCC BUILDING") }
+                let displayLine = heartbeat ?? lines.last ?? chunk
                 Task { @MainActor in
-                    let line = lastLine.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let line = displayLine.trimmingCharacters(in: .whitespacesAndNewlines)
                     self.statusMessage = line.isEmpty ? "Running: \(name)" : line
                 }
             }
