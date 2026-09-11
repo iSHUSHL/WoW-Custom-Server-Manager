@@ -1,3 +1,12 @@
+# v1.6.2 — Cross-Expansion Server Cleanup
+
+- Fixes stale TBC/Vanilla `realmd` and `mangosd` processes surviving while WotLK is selected.
+- Before Start All, Start Realm, or Start World, WoWCC stops server processes belonging only to other WoWCC-managed expansion profiles.
+- Prevents WotLK clients using `127.0.0.1` from accidentally reaching an old CMaNGOS listener on port 3724.
+- Never terminates unrelated third-party processes.
+- Cleanup details are written to `cross-expansion-cleanup.log` and are visible in WoWCC Logs.
+- Keeps the WotLK realm registration, port ownership, PlayerBots DB, DB port, and DataDir repairs.
+
 # v1.6.1 — Realm Port Ownership Fix
 
 - Fixes WotLK accidentally reusing a stale CMaNGOS `realmd` on port 3724 and showing the MaNGOS realm.

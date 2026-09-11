@@ -1100,6 +1100,7 @@ final class ServerModel: ObservableObject {
         Task {
             do {
                 try ensureCompatibilityAlias()
+                try stopStaleServersFromOtherExpansions()
                 try repairCMaNGOSDatabaseConfigIfNeeded()
 
                 statusMessage = "1/3 Starting managed MySQL 8.4…"
@@ -1177,6 +1178,7 @@ final class ServerModel: ObservableObject {
         Task {
             do {
                 try ensureCompatibilityAlias()
+                try stopStaleServersFromOtherExpansions()
                 try repairCMaNGOSDatabaseConfigIfNeeded()
                 guard portOpen(Int32(mysqlPort)) else { throw err("MySQL must be running before World Server.") }
                 guard realmDatabaseReady || probeRealmDatabaseReady() else { throw err("Realm database is not ready.") }
@@ -1228,6 +1230,7 @@ final class ServerModel: ObservableObject {
         Task {
             do {
                 try ensureCompatibilityAlias()
+                try stopStaleServersFromOtherExpansions()
                 try repairCMaNGOSDatabaseConfigIfNeeded()
                 guard portOpen(Int32(mysqlPort)) else { throw err("MySQL must be running before Realm Server.") }
                 guard realmDatabaseReady || probeRealmDatabaseReady() else { throw err("Realm database is not ready.") }
@@ -1369,6 +1372,66 @@ final class ServerModel: ObservableObject {
             environment: environment,
             interactive: interactive
         )
+    }
+
+    private func stopStaleServersFromOtherExpansions() throws {
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/bin/ps")
+        process.arguments = ["-axo", "pid=,command="]
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { return }
+
+        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let selectedProfileToken = "/runtime/profiles/\(selectedExpansion.rawValue)/bin/"
+        let serverNames = ["realmd", "mangosd", "authserver", "worldserver"]
+        var stopped: [String] = []
+
+        for rawLine in output.split(separator: "\n") {
+            let line = String(rawLine).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.isEmpty else { continue }
+            let parts = line.split(maxSplits: 1, whereSeparator: { $0.isWhitespace })
+            guard parts.count == 2, let pid = Int32(parts[0]) else { continue }
+            let command = String(parts[1])
+
+            // Only processes launched from WoWCC managed profile paths qualify.
+            let managed = command.contains("/.wowcc/runtime/profiles/") ||
+                          command.contains("/WoWServerControlCenter/runtime/profiles/")
+            guard managed else { continue }
+            guard !command.contains(selectedProfileToken) else { continue }
+            guard serverNames.contains(where: { command.contains("/bin/\($0)") }) else { continue }
+
+            let killer = Process()
+            killer.executableURL = URL(fileURLWithPath: "/bin/kill")
+            killer.arguments = ["-TERM", "\(pid)"]
+            killer.standardOutput = FileHandle.nullDevice
+            killer.standardError = FileHandle.nullDevice
+            try killer.run()
+            killer.waitUntilExit()
+            stopped.append("PID \(pid): \(command)")
+        }
+
+        if !stopped.isEmpty {
+            let deadline = Date().addingTimeInterval(4)
+            while Date() < deadline && (portOpen(authPort) || portOpen(worldPort)) {
+                Thread.sleep(forTimeInterval: 0.1)
+            }
+
+            try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
+            let logURL = logs.appendingPathComponent("cross-expansion-cleanup.log")
+            let stamp = ISO8601DateFormatter().string(from: Date())
+            let text = "[\(stamp)] Selected \(selectedExpansion.rawValue). Stopped stale servers from other WoWCC profiles:\n" + stopped.joined(separator: "\n") + "\n"
+            if FileManager.default.fileExists(atPath: logURL.path), let handle = try? FileHandle(forWritingTo: logURL) {
+                defer { try? handle.close() }
+                _ = try? handle.seekToEnd()
+                try? handle.write(contentsOf: Data(text.utf8))
+            } else {
+                try? text.write(to: logURL, atomically: true, encoding: .utf8)
+            }
+        }
     }
 
     private func ensureSelectedServerOwnsPort(_ port: Int32, expectedBinary: String) throws {
