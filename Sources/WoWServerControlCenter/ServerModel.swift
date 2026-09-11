@@ -1117,6 +1117,7 @@ final class ServerModel: ObservableObject {
                 try validateClientDataForStart()
 
                 statusMessage = "2/3 Starting \(authBinaryName)…"
+                try ensureSelectedServerOwnsPort(authPort, expectedBinary: authBinaryName)
                 if !portOpen(authPort) {
                     try startAuth()
                     try await waitForService(port: authPort, process: auth, label: authBinaryName, timeoutSeconds: 20, logName: "authserver.log")
@@ -1124,6 +1125,7 @@ final class ServerModel: ObservableObject {
                 authRunning = true
 
                 statusMessage = "3/3 Starting \(worldBinaryName)…"
+                try ensureSelectedServerOwnsPort(worldPort, expectedBinary: worldBinaryName)
                 if !portOpen(worldPort) {
                     try await ensureWotLKPlayerBotsDatabaseReady()
                     try ensurePlayerBotRuntimeConfig()
@@ -1180,6 +1182,7 @@ final class ServerModel: ObservableObject {
                 guard realmDatabaseReady || probeRealmDatabaseReady() else { throw err("Realm database is not ready.") }
                 try repairWotLKRealmRegistration()
                 try validateClientDataForStart()
+                try ensureSelectedServerOwnsPort(worldPort, expectedBinary: worldBinaryName)
                 if !portOpen(worldPort) {
                     try await ensureWotLKPlayerBotsDatabaseReady()
                     try ensurePlayerBotRuntimeConfig()
@@ -1366,6 +1369,76 @@ final class ServerModel: ObservableObject {
             environment: environment,
             interactive: interactive
         )
+    }
+
+    private func ensureSelectedServerOwnsPort(_ port: Int32, expectedBinary: String) throws {
+        guard portOpen(port) else { return }
+
+        func capture(_ executable: String, _ arguments: [String]) -> String {
+            let process = Process()
+            let pipe = Pipe()
+            process.executableURL = URL(fileURLWithPath: executable)
+            process.arguments = arguments
+            process.standardOutput = pipe
+            process.standardError = FileHandle.nullDevice
+            do {
+                try process.run()
+                process.waitUntilExit()
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                return String(data: data, encoding: .utf8) ?? ""
+            } catch {
+                return ""
+            }
+        }
+
+        let pidText = capture("/usr/sbin/lsof", ["-nP", "-t", "-iTCP:\(port)", "-sTCP:LISTEN"])
+        let pids = pidText.split(whereSeparator: { $0.isWhitespace }).compactMap { Int32($0) }
+        guard !pids.isEmpty else { return }
+
+        let selectedToken = "/runtime/profiles/\(selectedExpansion.rawValue)/bin/\(expectedBinary)"
+        let knownBinaries = ["/authserver", "/worldserver", "/realmd", "/mangosd"]
+
+        for pid in pids {
+            let command = capture("/bin/ps", ["-p", "\(pid)", "-o", "command="])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if command.contains(selectedToken) || (command.contains("/\(expectedBinary)") && command.contains("/runtime/profiles/\(selectedExpansion.rawValue)/")) {
+                continue
+            }
+
+            let managedByWoWCC = command.contains("/.wowcc/runtime/profiles/") || command.contains("WoWServerControlCenter/runtime/profiles/")
+            let knownServer = knownBinaries.contains(where: command.contains)
+            guard managedByWoWCC && knownServer else {
+                let ownerDescription = command.isEmpty ? "PID \(pid)" : command
+                throw err("Port \(port) is already owned by another process: \(ownerDescription). Stop it before starting \(selectedExpansion.shortTitle).")
+            }
+
+            let killer = Process()
+            killer.executableURL = URL(fileURLWithPath: "/bin/kill")
+            killer.arguments = ["-TERM", "\(pid)"]
+            killer.standardOutput = FileHandle.nullDevice
+            killer.standardError = FileHandle.nullDevice
+            try killer.run()
+            killer.waitUntilExit()
+
+            let deadline = Date().addingTimeInterval(3)
+            while Date() < deadline && portOpen(port) {
+                Thread.sleep(forTimeInterval: 0.1)
+            }
+            if portOpen(port) {
+                throw err("Old WoWCC server process on port \(port) did not stop. Stop the previous realm and retry.")
+            }
+
+            let logURL = logs.appendingPathComponent("port-ownership.log")
+            let stamp = ISO8601DateFormatter().string(from: Date())
+            let line = "[\(stamp)] Stopped stale WoWCC listener PID \(pid) on port \(port): \(command)\n"
+            if FileManager.default.fileExists(atPath: logURL.path), let handle = try? FileHandle(forWritingTo: logURL) {
+                defer { try? handle.close() }
+                try? handle.seekToEnd()
+                try? handle.write(contentsOf: Data(line.utf8))
+            } else {
+                try? line.write(to: logURL, atomically: true, encoding: .utf8)
+            }
+        }
     }
 
     private func waitForService(port: Int32, process: ManagedProcess, label: String, timeoutSeconds: Int, logName: String) async throws {

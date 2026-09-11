@@ -1,3 +1,11 @@
+# v1.6.1 — Realm Port Ownership Fix
+
+- Fixes WotLK accidentally reusing a stale CMaNGOS `realmd` on port 3724 and showing the MaNGOS realm.
+- Verifies the actual listener owner for auth port 3724 and world port 8085 before treating a service as already running.
+- Stops only stale WoWCC-managed realm/world processes from another expansion; unrelated processes are never killed.
+- Logs stale listener cleanup to `port-ownership.log` in WoWCC Logs.
+- Preserves WotLK realm registration, PlayerBots DB bootstrap, DB port, and absolute DataDir fixes.
+
 # v1.6.0 — WotLK Realm Registration Fix
 
 - Repairs `acore_auth.realmlist` automatically before WotLK Auth/World startup.
