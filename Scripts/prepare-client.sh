@@ -412,3 +412,19 @@ else
   echo "ERROR: Prepare Client Data is not implemented for profile '$PROFILE'." >&2
   exit 65
 fi
+
+
+# WoWCC v1.6.6: WotLK mounted flying everywhere
+if [[ "$PROFILE" == "wotlk" ]]; then
+  AREA_DBC="$PROFILE_ROOT/data/dbc/AreaTable.dbc"
+  if [[ -f "$AREA_DBC" ]]; then
+    FLY_ARGS=(--server-dbc "$AREA_DBC")
+    if [[ -n "${CLIENTDIR:-}" && -d "$CLIENTDIR" ]]; then
+      FLY_ARGS+=(--client-root "$CLIENTDIR")
+    fi
+    python3 "$(cd "$(dirname "$0")" && pwd)/enable-wotlk-flying-everywhere.py" "${FLY_ARGS[@]}"
+    echo "[client:wotlk] Mounted flying everywhere prepared. For Windows clients launch WoWCC-Fly-Everywhere.bat."
+  else
+    echo "[client:wotlk] WARNING: AreaTable.dbc not found; flying-everywhere client patch was not generated." >&2
+  fi
+fi

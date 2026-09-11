@@ -1,4 +1,11 @@
-# v1.6.5 — Expansion Service Manager
+# v1.6.6 — WotLK Mounted Flying Everywhere
+
+- WotLK flying mounts can be used in Eastern Kingdoms and Kalimdor after rebuilding the WotLK core and running Prepare Client Data.
+- Prepare Client Data patches AreaTable.dbc and creates `WoWCC-Fly-Everywhere.bat` for Windows 3.3.5a clients using `-direct`.
+- Server-side flight-area checks are patched during WotLK core installation.
+- Existing PlayerBots support remains intact for normal and Heroic dungeon groups.
+
+# v1.6.6 — Expansion Service Manager
 
 - Fixes the root expansion-switch bug: changing TBC → WotLK (or any era) now stops the OLD profile, not the newly selected profile.
 - Adds live per-expansion DB / Auth / World status indicators to Expansion Manager.

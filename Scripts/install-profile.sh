@@ -103,6 +103,40 @@ if [[ "$PROFILE" == "wotlk" ]]; then
 
   playerbots_tree_valid || fail "WotLK mod-playerbots clone is incomplete after clean clone: $WOTLK_BOTS_DIR"
   log "WotLK PlayerBots source ready (Playerbot fork + mod-playerbots)."
+
+  # WoWCC custom realm feature: mounted flying in Eastern Kingdoms + Kalimdor.
+  # The 3.3.5 client has its own AreaTable restriction, handled by
+  # enable-wotlk-flying-everywhere.py during Prepare Client Data.
+  log "Applying WoWCC WotLK mounted-flying-everywhere server patch…"
+  python3 - "$SRC_ROOT" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1]) / "src/server/game/Spells/SpellInfo.cpp"
+if not p.exists():
+    raise SystemExit("ERROR: WotLK SpellInfo.cpp not found")
+s = p.read_text()
+old = '''        if (!areaEntry || !areaEntry->IsFlyable() || (strict && (areaEntry->flags & AREA_FLAG_NO_FLY_ZONE) != 0) || !player->canFlyInZone(map_id, zone_id, this))
+        {
+            return SPELL_FAILED_INCORRECT_AREA;
+        }'''
+new = '''        // WoWCC: permit normal flying-mount spells in old Azeroth (maps 0/1).
+        // Client AreaTable is patched separately by Prepare Client Data.
+        bool const wowccOldWorldFlying = map_id == 0 || map_id == 1;
+        if (!areaEntry ||
+            (!wowccOldWorldFlying && !areaEntry->IsFlyable()) ||
+            (!wowccOldWorldFlying && strict && (areaEntry->flags & AREA_FLAG_NO_FLY_ZONE) != 0) ||
+            (!wowccOldWorldFlying && !player->canFlyInZone(map_id, zone_id, this)))
+        {
+            return SPELL_FAILED_INCORRECT_AREA;
+        }'''
+if new in s:
+    print('[core:wotlk] Flying-everywhere server patch already present')
+elif old in s:
+    p.write_text(s.replace(old, new, 1))
+    print('[core:wotlk] Flying-everywhere server patch applied')
+else:
+    raise SystemExit('ERROR: WotLK SpellInfo flight-check layout changed; refusing an unsafe patch')
+PY
 fi
 
 # Official CMaNGOS PlayerBots module. Keep it inside the core tree where
