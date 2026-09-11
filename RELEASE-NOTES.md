@@ -1,3 +1,12 @@
+# v1.6.5 — Expansion Service Manager
+
+- Fixes the root expansion-switch bug: changing TBC → WotLK (or any era) now stops the OLD profile, not the newly selected profile.
+- Adds live per-expansion DB / Auth / World status indicators to Expansion Manager.
+- Adds explicit Select / Start / Stop controls on every Vanilla, TBC, WotLK, Cata and MoP card.
+- Status is process/profile-specific instead of inferred from shared ports.
+- Stop terminates both remembered and orphaned server processes plus that expansion's managed MySQL process.
+- Only the explicitly started expansion can own the Active Realm Lock and watchdog.
+
 # v1.6.4 — Hard Profile Stop
 
 - Fixes Stop All doing nothing when an expansion server became orphaned from WoWCC's in-memory ManagedProcess object.

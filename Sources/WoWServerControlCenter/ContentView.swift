@@ -194,6 +194,13 @@ struct ContentView: View {
         .buttonStyle(.plain)
     }
 
+    private func expansionServiceDot(_ title: String, _ running: Bool) -> some View {
+        HStack(spacing:5) {
+            Circle().fill(running ? Color.green : Color.secondary).frame(width:8,height:8)
+            Text(title).font(.caption2.bold()).foregroundStyle(running ? .primary : .secondary)
+        }
+    }
+
     private func statusDot(_ title: String, _ ready: Bool) -> some View {
         HStack(spacing: 4) {
             Circle().fill(ready ? Color.green : Color.secondary).frame(width: 7, height: 7)
@@ -492,14 +499,45 @@ struct ContentView: View {
             ScrollView {
                 LazyVGrid(columns:[GridItem(.adaptive(minimum:255))],spacing:12) {
                     ForEach(ExpansionID.allCases) { e in
-                        Button { model.selectedExpansion=e } label:{
-                            VStack(alignment:.leading,spacing:8) {
-                                HStack { Text(e.shortTitle).font(.title2.bold()); Spacer(); maturityBadge(e.maturity) }
-                                Text(e.title).font(.headline).multilineTextAlignment(.leading)
-                                Text(e.recommendedCore).font(.caption).foregroundStyle(.secondary)
-                                Text(e.clientHint).font(.caption2).foregroundStyle(.secondary)
-                            }.padding(14).frame(maxWidth:.infinity,alignment:.leading).background(.thinMaterial,in:RoundedRectangle(cornerRadius:16))
-                        }.buttonStyle(.plain)
+                        let state = model.serviceState(for: e)
+                        VStack(alignment:.leading,spacing:10) {
+                            HStack {
+                                Text(e.shortTitle).font(.title2.bold())
+                                Spacer()
+                                if model.selectedExpansion == e {
+                                    Text("SELECTED").font(.caption2.bold()).foregroundStyle(.blue)
+                                }
+                                maturityBadge(e.maturity)
+                            }
+                            Text(e.title).font(.headline)
+                            Text(e.recommendedCore).font(.caption).foregroundStyle(.secondary)
+
+                            HStack(spacing:12) {
+                                expansionServiceDot("DB", state.database)
+                                expansionServiceDot("Auth", state.auth)
+                                expansionServiceDot("World", state.world)
+                                Spacer()
+                                Text(state.fullyRunning ? "ONLINE" : (state.anyRunning ? "PARTIAL" : "OFFLINE"))
+                                    .font(.caption2.bold())
+                                    .foregroundStyle(state.fullyRunning ? .green : (state.anyRunning ? .orange : .secondary))
+                            }
+
+                            HStack(spacing:8) {
+                                Button("Select") { model.selectedExpansion = e }
+                                    .buttonStyle(.bordered)
+                                    .disabled(model.selectedExpansion == e)
+                                Button { model.startExpansion(e) } label: { Label("Start", systemImage:"play.fill") }
+                                    .buttonStyle(.borderedProminent)
+                                    .disabled(model.operationActive || state.fullyRunning)
+                                Button { model.stopExpansion(e) } label: { Label("Stop", systemImage:"stop.fill") }
+                                    .buttonStyle(.bordered)
+                                    .disabled(!state.anyRunning)
+                            }
+                        }
+                        .padding(14)
+                        .frame(maxWidth:.infinity,alignment:.leading)
+                        .background(model.selectedExpansion == e ? Color.accentColor.opacity(0.10) : Color.clear)
+                        .background(.thinMaterial,in:RoundedRectangle(cornerRadius:16))
                     }
                 }
             }

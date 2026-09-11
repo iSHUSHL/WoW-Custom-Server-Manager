@@ -2,16 +2,29 @@ import Foundation
 import SwiftUI
 import AppKit
 
+struct ExpansionServiceState: Equatable {
+    var database = false
+    var auth = false
+    var world = false
+    var anyRunning: Bool { database || auth || world }
+    var fullyRunning: Bool { database && auth && world }
+}
+
 @MainActor
 final class ServerModel: ObservableObject {
     @Published var selectedExpansion: ExpansionID = .wotlk {
         didSet {
             guard selectedExpansion != oldValue else { return }
-            saveExpansion()
+            let previousExpansion = oldValue
             desiredWorldRunning = false
             worldWatchdogRestartInProgress = false
+            world?.stop()
+            auth?.stop()
+            mysql?.stop()
+            try? hardStopManagedServersForProfile(previousExpansion)
+            try? hardStopManagedDatabaseForProfile(previousExpansion)
             try? FileManager.default.removeItem(at: dataRoot.appendingPathComponent("runtime/active-realm-profile"))
-            stopAll()
+            saveExpansion()
             loadProfileSettings()
             lanAccessEnabled = UserDefaults.standard.bool(forKey: profileKey("lanAccess"))
             detectedLANIP = UserDefaults.standard.string(forKey: profileKey("lastLANIP")) ?? "Not detected"
@@ -26,6 +39,7 @@ final class ServerModel: ObservableObject {
             }
         }
     }
+    @Published var expansionServiceStates: [String: ExpansionServiceState] = [:]
     @Published var mysqlRunning = false
     @Published var authRunning = false
     @Published var worldRunning = false
@@ -192,10 +206,12 @@ final class ServerModel: ObservableObject {
         rebuildProcesses()
 
         refresh()
+        refreshExpansionServiceStates()
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
                 self.refresh()
+                self.refreshExpansionServiceStates()
                 await self.keepWorldAliveIfRequested()
             }
         }
@@ -1124,6 +1140,134 @@ final class ServerModel: ObservableObject {
         refresh()
     }
 
+    func serviceState(for expansion: ExpansionID) -> ExpansionServiceState {
+        expansionServiceStates[expansion.rawValue] ?? ExpansionServiceState()
+    }
+
+    func refreshExpansionServiceStates() {
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/bin/ps")
+        process.arguments = ["-axo", "pid=,command="]
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return
+        }
+        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        var next: [String: ExpansionServiceState] = [:]
+        for expansion in ExpansionID.allCases {
+            let profileToken = "/runtime/profiles/\(expansion.rawValue)/bin/"
+            let dbToken = "/runtime/mysql/\(expansion.rawValue)/data"
+            var state = ExpansionServiceState()
+            for rawLine in output.split(separator: "\n") {
+                let command = String(rawLine)
+                if command.contains(dbToken) && command.contains("mysqld") {
+                    state.database = true
+                }
+                if command.contains(profileToken) {
+                    if command.contains("/bin/realmd") || command.contains("/bin/authserver") {
+                        state.auth = true
+                    }
+                    if command.contains("/bin/mangosd") || command.contains("/bin/worldserver") {
+                        state.world = true
+                    }
+                }
+            }
+            next[expansion.rawValue] = state
+        }
+        expansionServiceStates = next
+    }
+
+    func startExpansion(_ expansion: ExpansionID) {
+        if selectedExpansion != expansion {
+            selectedExpansion = expansion
+        }
+        startAll()
+    }
+
+    func stopExpansion(_ expansion: ExpansionID) {
+        desiredWorldRunning = false
+        worldWatchdogRestartInProgress = false
+        if readActiveRealmLock() == expansion.rawValue {
+            try? FileManager.default.removeItem(at: activeRealmLockURL)
+        }
+
+        if selectedExpansion == expansion {
+            world?.stop()
+            auth?.stop()
+            mysql?.stop()
+        }
+
+        do {
+            try hardStopManagedServersForProfile(expansion)
+            try hardStopManagedDatabaseForProfile(expansion)
+            if selectedExpansion == expansion {
+                worldRunning = false
+                authRunning = false
+                mysqlRunning = false
+            }
+            statusMessage = "\(expansion.shortTitle) stopped — DB, Auth and World are off"
+        } catch {
+            statusMessage = "Could not fully stop \(expansion.shortTitle): \(error.localizedDescription)"
+        }
+        refreshExpansionServiceStates()
+        refresh()
+    }
+
+    private func hardStopManagedDatabaseForProfile(_ expansion: ExpansionID) throws {
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/bin/ps")
+        process.arguments = ["-axo", "pid=,command="]
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { return }
+
+        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let dbToken = "/runtime/mysql/\(expansion.rawValue)/data"
+        var targets: [Int32] = []
+        for rawLine in output.split(separator: "\n") {
+            let line = String(rawLine).trimmingCharacters(in: .whitespacesAndNewlines)
+            let parts = line.split(maxSplits: 1, whereSeparator: { $0.isWhitespace })
+            guard parts.count == 2, let pid = Int32(parts[0]) else { continue }
+            let command = String(parts[1])
+            if command.contains("mysqld") && command.contains(dbToken) {
+                targets.append(pid)
+            }
+        }
+        guard !targets.isEmpty else { return }
+
+        for pid in targets {
+            let killer = Process()
+            killer.executableURL = URL(fileURLWithPath: "/bin/kill")
+            killer.arguments = ["-TERM", "\(pid)"]
+            killer.standardOutput = FileHandle.nullDevice
+            killer.standardError = FileHandle.nullDevice
+            try? killer.run()
+            killer.waitUntilExit()
+        }
+        let deadline = Date().addingTimeInterval(3)
+        while Date() < deadline && targets.contains(where: { kill($0, 0) == 0 }) {
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        let survivors = targets.filter { kill($0, 0) == 0 }
+        for pid in survivors {
+            let killer = Process()
+            killer.executableURL = URL(fileURLWithPath: "/bin/kill")
+            killer.arguments = ["-KILL", "\(pid)"]
+            killer.standardOutput = FileHandle.nullDevice
+            killer.standardError = FileHandle.nullDevice
+            try? killer.run()
+            killer.waitUntilExit()
+        }
+    }
+
     func startAll() {
         desiredWorldRunning = false
         Task {
@@ -1167,6 +1311,7 @@ final class ServerModel: ObservableObject {
                 worldRunning = true
 
                 statusMessage = "ONLINE — MySQL, Auth and World Server are running"
+                refreshExpansionServiceStates()
                 refreshPlayerBotStats()
                 loadCharacters()
                 loadAccounts()
@@ -1192,10 +1337,12 @@ final class ServerModel: ObservableObject {
         world?.stop(); auth?.stop(); mysql?.stop()
         do {
             try hardStopManagedServersForProfile(selectedExpansion)
+            try hardStopManagedDatabaseForProfile(selectedExpansion)
             worldRunning = false
             authRunning = false
-            mysqlRunning = portOpen(Int32(mysqlPort))
-            statusMessage = "Server stopped — \(selectedExpansion.shortTitle) processes are fully terminated"
+            mysqlRunning = false
+            refreshExpansionServiceStates()
+            statusMessage = "Server stopped — \(selectedExpansion.shortTitle) DB, Auth and World are fully terminated"
         } catch {
             statusMessage = "Stop failed: \(error.localizedDescription)"
         }
