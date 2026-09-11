@@ -1,3 +1,10 @@
+# v1.5.99 — WotLK Absolute DataDir Fix
+
+- Fixes WotLK World startup using `DataDir ./` while WoWCC client data lives in the managed profile `data` directory.
+- Self-heals `worldserver.conf` DataDir to the absolute managed WotLK data path before every start.
+- Also passes AzerothCore `AC_DATA_DIR` at launch so stale/default relative paths cannot override the managed data location.
+- Keeps the PlayerBots DB bootstrap and port fixes from 1.5.98.
+
 # v1.5.98 — WotLK PlayerBots Database Bootstrap
 
 - Fixes WotLK World hanging at `Database "acore_playerbots" does not exist` / `Do you want to create it?`.

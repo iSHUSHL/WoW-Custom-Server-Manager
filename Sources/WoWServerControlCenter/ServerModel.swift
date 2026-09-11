@@ -1306,7 +1306,8 @@ final class ServerModel: ObservableObject {
             environment = [
                 "AC_PLAYERBOTS_DATABASE_INFO": "127.0.0.1;\(mysqlPort);wowcc;wowcc;acore_playerbots",
                 "AC_PLAYERBOTS_DATABASE_WORKERTHREADS": "1",
-                "AC_PLAYERBOTS_DATABASE_SYNCHTHREADS": "1"
+                "AC_PLAYERBOTS_DATABASE_SYNCHTHREADS": "1",
+                "AC_DATA_DIR": profileRoot.appendingPathComponent("data").path
             ]
         }
 
