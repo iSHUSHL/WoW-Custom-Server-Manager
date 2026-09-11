@@ -1,0 +1,56 @@
+name: WotLK Flying Everywhere v1606
+
+on:
+  push:
+    paths:
+      - 'Scripts/apply-v1606-flying-everywhere.py'
+      - '.github/workflows/flying-everywhere-v1606.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply v1.6.6 patch
+        run: python3 Scripts/apply-v1606-flying-everywhere.py
+
+      - name: Validate scripts
+        run: |
+          bash -n Scripts/install-profile.sh
+          bash -n Scripts/prepare-client.sh
+          python3 -m py_compile Scripts/enable-wotlk-flying-everywhere.py
+
+      - name: Build release app
+        run: swift build -c release
+
+      - name: Remove temporary patch files
+        run: |
+          rm -f Scripts/apply-v1606-flying-everywhere.py
+          rm -f .github/workflows/flying-everywhere-v1606.yml
+
+      - name: Commit v1.6.6
+        run: |
+          git config user.name 'WoWCC Build Bot'
+          git config user.email 'wowcc-build@users.noreply.github.com'
+          git add -A
+          git diff --cached --quiet && { echo 'No changes to commit'; exit 1; }
+          git commit -m 'WoWCC 1.6.6: WotLK mounted flying everywhere'
+          git push origin HEAD:main
+
+      - name: Stage ONE-ZIP source artifact
+        run: |
+          rm -rf artifact
+          mkdir -p artifact/WoW-Custom-Server-Manager
+          git archive --format=tar HEAD | tar -xf - -C artifact/WoW-Custom-Server-Manager
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WoWServerControlCenter-1.6.6-FlyingEverywhere-ONE-ZIP
+          path: artifact/WoW-Custom-Server-Manager
