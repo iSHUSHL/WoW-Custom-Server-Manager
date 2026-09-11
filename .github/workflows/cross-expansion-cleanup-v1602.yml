@@ -1,0 +1,48 @@
+name: Cross Expansion Cleanup v1602
+
+on:
+  push:
+    paths:
+      - '.github/workflows/cross-expansion-cleanup-v1602.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-build-package:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply 1.6.2 fix
+        run: python3 Scripts/apply-v1602-cross-expansion-cleanup.py
+      - name: Remove temporary patch files
+        run: |
+          rm -f Scripts/apply-v1602-cross-expansion-cleanup.py
+          rm -f .github/workflows/cross-expansion-cleanup-v1602.yml
+      - name: Validate scripts and app
+        run: |
+          bash -n Build.command
+          bash -n Verify.command
+          find Scripts -type f -name '*.sh' -print0 | xargs -0 -n1 bash -n
+          swift build -c release
+          grep -q '1.6.2' Build.command
+          grep -q '1602' Build.command
+          grep -q 'stopStaleServersFromOtherExpansions' Sources/WoWServerControlCenter/ServerModel.swift
+          grep -q 'cross-expansion-cleanup.log' Sources/WoWServerControlCenter/ServerModel.swift
+      - name: Commit validated changes
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m 'Stop stale servers from other expansions (1.6.2)'
+          git push
+      - name: Stage tracked source without nested ZIP
+        run: |
+          mkdir -p artifact/WoW-Custom-Server-Manager
+          git archive --format=tar HEAD | tar -xf - -C artifact/WoW-Custom-Server-Manager
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WoWServerControlCenter-1.6.2-CrossExpansionCleanup-ONE-ZIP
+          path: artifact/WoW-Custom-Server-Manager
+          if-no-files-found: error
