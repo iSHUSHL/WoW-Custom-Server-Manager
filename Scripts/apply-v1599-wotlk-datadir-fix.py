@@ -1,5 +1,4 @@
 from pathlib import Path
-import re
 
 server = Path('Sources/WoWServerControlCenter/ServerModel.swift')
 s = server.read_text()
@@ -12,50 +11,22 @@ anchor = '''        worldText = forcing(
         )
 '''
 if anchor in s and 'key: "DataDir"' not in s[s.find(anchor):s.find(anchor)+900]:
-    replacement = anchor + '''        worldText = forcing(
+    s = s.replace(anchor, anchor + '''        worldText = forcing(
             worldText,
             key: "DataDir",
             value: profileRoot.appendingPathComponent("data").path
         )
+''', 1)
+
+# 1.5.97 already has a WotLK launch environment dictionary. Add DataDir there.
+needle = '''                "AC_PLAYERBOTS_DATABASE_SYNCHTHREADS": "1"
 '''
-    s = s.replace(anchor, replacement, 1)
-
-# Ensure startBinary explicitly passes AzerothCore DataDir through the environment.
-# 1.5.97 already creates launchEnvironment for the PlayerBots DB override.
-if 'AC_PLAYERBOTS_DATABASE_INFO' in s and 'AC_DATA_DIR' not in s:
-    s = s.replace(
-        'launchEnvironment["AC_PLAYERBOTS_DATABASE_INFO"] = "127.0.0.1;\\(mysqlPort);wowcc;wowcc;acore_playerbots"',
-        'launchEnvironment["AC_PLAYERBOTS_DATABASE_INFO"] = "127.0.0.1;\\(mysqlPort);wowcc;wowcc;acore_playerbots"\n            launchEnvironment["AC_DATA_DIR"] = profileRoot.appendingPathComponent("data").path',
-        1
-    )
-
-# Fallback: if launchEnvironment structure changed, inject before process.start.
 if 'AC_DATA_DIR' not in s:
-    needle = '''        try process.start(
-            executable: aliasBin,
-            arguments: arguments,
-            currentDirectory: aliasProfile.appendingPathComponent("bin"),
-'''
     if needle not in s:
-        raise SystemExit('Could not locate startBinary process.start block')
-    repl = '''        var wowccLaunchEnvironment: [String:String]? = nil
-        if selectedExpansion == .wotlk && name == worldBinaryName {
-            wowccLaunchEnvironment = [
-                "AC_PLAYERBOTS_DATABASE_INFO": "127.0.0.1;\\(mysqlPort);wowcc;wowcc;acore_playerbots",
+        raise SystemExit('Could not locate WotLK launch environment dictionary')
+    s = s.replace(needle, '''                "AC_PLAYERBOTS_DATABASE_SYNCHTHREADS": "1",
                 "AC_DATA_DIR": profileRoot.appendingPathComponent("data").path
-            ]
-        }
-
-        try process.start(
-            executable: aliasBin,
-            arguments: arguments,
-            currentDirectory: aliasProfile.appendingPathComponent("bin"),
-            environment: wowccLaunchEnvironment,
-'''
-    s = s.replace(needle, repl, 1)
-
-# If an existing environment argument follows currentDirectory, avoid duplicate fallback arg.
-s = s.replace('environment: wowccLaunchEnvironment,\n            environment: launchEnvironment,', 'environment: launchEnvironment ?? wowccLaunchEnvironment,')
+''', 1)
 
 server.write_text(s)
 
