@@ -215,7 +215,14 @@ private struct WindowAppearanceConfigurator: NSViewRepresentable {
         window.backgroundColor = NSColor(calibratedRed: 0.020, green: 0.030, blue: 0.043, alpha: 1.0)
         if #available(macOS 11.0, *) { window.toolbarStyle = .unifiedCompact }
 
-        installPremiumTitleBrand(in: window)
+        // Keep the native traffic-light titlebar clean. Remove any legacy
+        // WoWCC title accessory that may already be attached to this window.
+        for controller in window.titlebarAccessoryViewControllers.reversed() {
+            if controller.view.identifier?.rawValue == WoWCCTitlebarAccessoryController.identifierString,
+               let index = window.titlebarAccessoryViewControllers.firstIndex(of: controller) {
+                window.removeTitlebarAccessoryViewController(at: index)
+            }
+        }
     }
 
     private func installPremiumTitleBrand(in window: NSWindow) {

@@ -1,3 +1,10 @@
+# v1.5.95 — PlayerBots Runtime Config Sweep + Clean Titlebar
+
+- Fixes persistent WotLK PlayerBots startup attempts on MySQL 3306 by repairing every runtime playerbots.conf inside the managed WotLK profile before World starts.
+- Logs every repaired PlayerBots config path to playerbots-config.log, visible in WoWCC Logs.
+- Removes the custom WoW icon/title/subtitle from the app window titlebar while keeping the Dock/Finder app icon.
+- Keeps all 1.5.94, SDK 27, and WotLK database fixes.
+
 # v1.5.94 — WotLK PlayerBots DB Port Self-Heal
 
 - Fixes WotLK worldserver startup failure where acore_playerbots still attempted MySQL 127.0.0.1:3306.
