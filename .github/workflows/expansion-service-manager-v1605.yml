@@ -1,0 +1,48 @@
+name: Expansion Service Manager v1605
+
+on:
+  push:
+    paths:
+      - '.github/workflows/expansion-service-manager-v1605.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-build-package:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply 1.6.5 fix
+        run: python3 Scripts/apply-v1605-expansion-service-manager.py
+      - name: Remove temporary patch files
+        run: |
+          rm -f Scripts/apply-v1605-expansion-service-manager.py
+          rm -f .github/workflows/expansion-service-manager-v1605.yml
+      - name: Validate scripts and app
+        run: |
+          bash -n Build.command
+          bash -n Verify.command
+          find Scripts -type f -name '*.sh' -print0 | xargs -0 -n1 bash -n
+          swift build -c release
+          grep -q '1.6.5' Build.command
+          grep -q '1605' Build.command
+          grep -q 'refreshExpansionServiceStates' Sources/WoWServerControlCenter/ServerModel.swift
+          grep -q 'expansionServiceDot' Sources/WoWServerControlCenter/ContentView.swift
+      - name: Commit validated changes
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m 'Add per-expansion service manager (1.6.5)'
+          git push
+      - name: Stage tracked source without nested ZIP
+        run: |
+          mkdir -p artifact/WoW-Custom-Server-Manager
+          git archive --format=tar HEAD | tar -xf - -C artifact/WoW-Custom-Server-Manager
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WoWServerControlCenter-1.6.5-ExpansionServiceManager-ONE-ZIP
+          path: artifact/WoW-Custom-Server-Manager
+          if-no-files-found: error
