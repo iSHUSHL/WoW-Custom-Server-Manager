@@ -1,0 +1,48 @@
+name: Active Realm Lock v1603
+
+on:
+  push:
+    paths:
+      - '.github/workflows/active-realm-lock-v1603.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-build-package:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply 1.6.3 fix
+        run: python3 Scripts/apply-v1603-active-realm-lock.py
+      - name: Remove temporary patch files
+        run: |
+          rm -f Scripts/apply-v1603-active-realm-lock.py
+          rm -f .github/workflows/active-realm-lock-v1603.yml
+      - name: Validate scripts and app
+        run: |
+          bash -n Build.command
+          bash -n Verify.command
+          find Scripts -type f -name '*.sh' -print0 | xargs -0 -n1 bash -n
+          swift build -c release
+          grep -q '1.6.3' Build.command
+          grep -q '1603' Build.command
+          grep -q 'active-realm-profile' Sources/WoWServerControlCenter/ServerModel.swift
+          grep -q 'selectedExpansionOwnsActiveRealmLock' Sources/WoWServerControlCenter/ServerModel.swift
+      - name: Commit validated changes
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m 'Enforce true expansion isolation (1.6.3)'
+          git push
+      - name: Stage tracked source without nested ZIP
+        run: |
+          mkdir -p artifact/WoW-Custom-Server-Manager
+          git archive --format=tar HEAD | tar -xf - -C artifact/WoW-Custom-Server-Manager
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WoWServerControlCenter-1.6.3-TrueExpansionIsolation-ONE-ZIP
+          path: artifact/WoW-Custom-Server-Manager
+          if-no-files-found: error
