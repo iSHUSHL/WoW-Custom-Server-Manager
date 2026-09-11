@@ -1190,7 +1190,15 @@ final class ServerModel: ObservableObject {
         worldWatchdogRestartInProgress = false
         releaseActiveRealmLockIfOwned()
         world?.stop(); auth?.stop(); mysql?.stop()
-        statusMessage = "Server stopped"
+        do {
+            try hardStopManagedServersForProfile(selectedExpansion)
+            worldRunning = false
+            authRunning = false
+            mysqlRunning = portOpen(Int32(mysqlPort))
+            statusMessage = "Server stopped — \(selectedExpansion.shortTitle) processes are fully terminated"
+        } catch {
+            statusMessage = "Stop failed: \(error.localizedDescription)"
+        }
         refresh()
     }
     func restartAll() {
@@ -1413,6 +1421,84 @@ final class ServerModel: ObservableObject {
             environment: environment,
             interactive: interactive
         )
+    }
+
+    private func hardStopManagedServersForProfile(_ expansion: ExpansionID) throws {
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/bin/ps")
+        process.arguments = ["-axo", "pid=,command="]
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { return }
+
+        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let profileToken = "/runtime/profiles/\(expansion.rawValue)/bin/"
+        let serverNames = ["realmd", "mangosd", "authserver", "worldserver"]
+        var targets: [(Int32, String)] = []
+
+        for rawLine in output.split(separator: "\n") {
+            let line = String(rawLine).trimmingCharacters(in: .whitespacesAndNewlines)
+            let parts = line.split(maxSplits: 1, whereSeparator: { $0.isWhitespace })
+            guard parts.count == 2, let pid = Int32(parts[0]) else { continue }
+            let command = String(parts[1])
+            guard command.contains(profileToken) else { continue }
+            guard serverNames.contains(where: { command.contains("/bin/\($0)") || command.hasSuffix("/\($0)") }) else { continue }
+            targets.append((pid, command))
+        }
+
+        guard !targets.isEmpty else { return }
+
+        func signal(_ name: String, pids: [Int32]) {
+            for pid in pids {
+                let killer = Process()
+                killer.executableURL = URL(fileURLWithPath: "/bin/kill")
+                killer.arguments = [name, "\(pid)"]
+                killer.standardOutput = FileHandle.nullDevice
+                killer.standardError = FileHandle.nullDevice
+                try? killer.run()
+                killer.waitUntilExit()
+            }
+        }
+
+        signal("-TERM", pids: targets.map { $0.0 })
+        let termDeadline = Date().addingTimeInterval(3.0)
+        while Date() < termDeadline {
+            let alive = targets.contains { kill($0.0, 0) == 0 }
+            if !alive { break }
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+
+        let survivors = targets.filter { kill($0.0, 0) == 0 }
+        if !survivors.isEmpty {
+            signal("-KILL", pids: survivors.map { $0.0 })
+            let killDeadline = Date().addingTimeInterval(2.0)
+            while Date() < killDeadline {
+                if !survivors.contains(where: { kill($0.0, 0) == 0 }) { break }
+                Thread.sleep(forTimeInterval: 0.1)
+            }
+        }
+
+        let stillAlive = targets.filter { kill($0.0, 0) == 0 }
+        try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
+        let logURL = logs.appendingPathComponent("hard-stop.log")
+        let stamp = ISO8601DateFormatter().string(from: Date())
+        var text = "[\(stamp)] Hard stop profile=\(expansion.rawValue)\n"
+        text += targets.map { "target PID \($0.0): \($0.1)" }.joined(separator: "\n") + "\n"
+        if !survivors.isEmpty { text += "Escalated to SIGKILL: " + survivors.map { String($0.0) }.joined(separator: ",") + "\n" }
+        if !stillAlive.isEmpty { text += "STILL ALIVE: " + stillAlive.map { String($0.0) }.joined(separator: ",") + "\n" }
+        if FileManager.default.fileExists(atPath: logURL.path), let handle = try? FileHandle(forWritingTo: logURL) {
+            defer { try? handle.close() }
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: Data(text.utf8))
+        } else {
+            try? text.write(to: logURL, atomically: true, encoding: .utf8)
+        }
+        if !stillAlive.isEmpty {
+            throw err("Could not stop all \(expansion.shortTitle) server processes. See hard-stop.log.")
+        }
     }
 
     private func stopStaleServersFromOtherExpansions() throws {

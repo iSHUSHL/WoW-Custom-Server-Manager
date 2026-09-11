@@ -1,3 +1,12 @@
+# v1.6.4 — Hard Profile Stop
+
+- Fixes Stop All doing nothing when an expansion server became orphaned from WoWCC's in-memory ManagedProcess object.
+- Stop All now performs a PID sweep for the selected expansion profile and terminates its managed `realmd`, `mangosd`, `authserver`, and `worldserver` processes.
+- Uses SIGTERM first, then SIGKILL only for surviving WoWCC-managed processes in that exact profile.
+- Verifies no selected-profile server processes remain before reporting success.
+- Writes all hard-stop actions to `hard-stop.log`, visible in WoWCC Logs.
+- Preserves the single Active Realm Lock: stopped profiles cannot be resurrected by the watchdog.
+
 # v1.6.3 — True Expansion Isolation / Active Realm Lock
 
 - Enforces one active WoW expansion profile at a time across Vanilla, TBC, WotLK, Cataclysm and MoP.
