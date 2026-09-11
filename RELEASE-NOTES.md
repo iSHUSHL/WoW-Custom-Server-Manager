@@ -1,3 +1,11 @@
+# v1.5.98 — WotLK PlayerBots Database Bootstrap
+
+- Fixes WotLK World hanging at `Database "acore_playerbots" does not exist` / `Do you want to create it?`.
+- Before worldserver starts, WoWCC verifies the real PlayerBots database contains tables, not just a stale ready marker.
+- Missing/empty `acore_playerbots` automatically runs the repeatable WotLK PlayerBots bootstrap, imports module SQL/migrations, validates tables, and creates the ready marker.
+- PlayerBots startup then uses the 15-minute initialization timeout instead of falling back to the normal 30-second timeout.
+- Keeps the forced `AC_PLAYERBOTS_DATABASE_INFO` managed-MySQL 3307 override and clean in-app titlebar.
+
 # v1.5.97 — WotLK PlayerBots DB Environment Override
 
 - Forces the PlayerBots database connection through AzerothCore's highest-priority `AC_PLAYERBOTS_DATABASE_INFO` environment override.

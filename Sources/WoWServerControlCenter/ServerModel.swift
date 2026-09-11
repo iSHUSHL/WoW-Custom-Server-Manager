@@ -884,6 +884,77 @@ final class ServerModel: ObservableObject {
         }
     }
 
+    private func ensureWotLKPlayerBotsDatabaseReady() async throws {
+        guard selectedExpansion == .wotlk else { return }
+
+        let client = try dbClient()
+        let tableCountSQL = "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='acore_playerbots';"
+        let currentCount = Int(try client.query(database: "mysql", sql: tableCountSQL)
+            .trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+
+        // A stale .playerbots-ready marker is not enough. The database itself is
+        // authoritative. If it is missing/empty, run the same repeatable bootstrap
+        // used by PlayerBots → Populate / Repair before worldserver is allowed to start.
+        if currentCount > 0 {
+            let marker = profileRoot.appendingPathComponent(".playerbots-ready")
+            if !FileManager.default.fileExists(atPath: marker.path) {
+                try? ISO8601DateFormatter().string(from: Date()).appending("\n")
+                    .write(to: marker, atomically: true, encoding: .utf8)
+            }
+            return
+        }
+
+        let script = assetsRoot.appendingPathComponent("Scripts/setup-playerbots-wotlk.sh")
+        guard FileManager.default.fileExists(atPath: script.path) else {
+            throw err("WotLK PlayerBots setup script is missing from the app bundle.")
+        }
+
+        statusMessage = "Preparing WotLK PlayerBots database…"
+        let scriptPath = script.path
+        let dataRootPath = dataRoot.path
+        let mysqlPortValue = mysqlPort
+        let bots = min(5000, max(10, playerBotPopulation))
+        let enabled = playerBotsEnabled ? "1" : "0"
+        let battlegrounds = playerBotsBattlegrounds ? "1" : "0"
+        let quests = playerBotsQuesting ? "1" : "0"
+        let speed = playerBotCreationSpeed.lowercased()
+
+        let result = await Task.detached(priority: .utility) { () -> (Int32, String?) in
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/bash")
+            process.arguments = [scriptPath, "wotlk", "\(bots)", enabled, battlegrounds, quests, speed]
+            process.environment = ProcessInfo.processInfo.environment.merging([
+                "WOWCC_DATA_ROOT": dataRootPath,
+                "WOWCC_MYSQL_PORT": "\(mysqlPortValue)"
+            ]) { _, new in new }
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
+            do {
+                try process.run()
+                process.waitUntilExit()
+                return (process.terminationStatus, nil)
+            } catch {
+                return (-1, error.localizedDescription)
+            }
+        }.value
+
+        if let launchError = result.1 {
+            throw err("Could not launch WotLK PlayerBots database bootstrap: \(launchError)")
+        }
+        guard result.0 == 0 else {
+            let tail = lastLogLines("playerbots-setup.log", count: 30)
+            throw err("WotLK PlayerBots database bootstrap failed (exit \(result.0)). \(tail)")
+        }
+
+        let verifiedCount = Int(try client.query(database: "mysql", sql: tableCountSQL)
+            .trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+        guard verifiedCount > 0 else {
+            throw err("WotLK PlayerBots bootstrap completed but acore_playerbots still contains no tables. Check PlayerBots Setup log.")
+        }
+
+        statusMessage = "WotLK PlayerBots database ready — \(verifiedCount) tables"
+    }
+
     private func waitForWorldReadyPlayerBotsAware() async throws {
         // First PlayerBots launch builds large item/equipment caches before opening 8085.
         // Official PlayerBots documentation explicitly warns first startup takes time.
@@ -964,6 +1035,7 @@ final class ServerModel: ObservableObject {
 
         do {
             try ensureCompatibilityAlias()
+            try await ensureWotLKPlayerBotsDatabaseReady()
             try ensurePlayerBotRuntimeConfig()
             try startWorld()
             try await waitForWorldReadyPlayerBotsAware()
@@ -1007,6 +1079,7 @@ final class ServerModel: ObservableObject {
 
                 statusMessage = "3/3 Starting \(worldBinaryName)…"
                 if !portOpen(worldPort) {
+                    try await ensureWotLKPlayerBotsDatabaseReady()
                     try ensurePlayerBotRuntimeConfig()
                     try startWorld()
                     try await waitForWorldReadyPlayerBotsAware()
@@ -1061,6 +1134,7 @@ final class ServerModel: ObservableObject {
                 guard realmDatabaseReady || probeRealmDatabaseReady() else { throw err("Realm database is not ready.") }
                 try validateClientDataForStart()
                 if !portOpen(worldPort) {
+                    try await ensureWotLKPlayerBotsDatabaseReady()
                     try ensurePlayerBotRuntimeConfig()
                     try startWorld()
                     try await waitForWorldReadyPlayerBotsAware()
