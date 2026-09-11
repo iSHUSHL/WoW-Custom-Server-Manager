@@ -57,8 +57,8 @@ if old not in s:
     raise SystemExit('watchdog reader progress block not found')
 s = s.replace(old, new, 1)
 s = s.replace('time.sleep(5)', 'time.sleep(2)', 1)
-old = "heartbeat=f'[build:{args.label}] BUILDING {progress} | elapsed {elapsed//60}m{elapsed%60:02d}s | no-output {silent}s | child CPU {cpu:.1f}% | {active_short}\\n'"
-new = "heartbeat=f'[build:{args.label}] BUILDING {progress_detail or progress} | elapsed {elapsed//60}m{elapsed%60:02d}s | quiet {silent}s | compiler CPU {cpu:.1f}% | {active_short}\\n'"
+old = "heartbeat=f'[ {progress:>4}] WoWCC BUILDING {args.label} | elapsed {elapsed//60}m{elapsed%60:02d}s | no-output {silent}s | child CPU {cpu:.1f}% | {active_short}\\n'"
+new = "heartbeat=f'[ {progress:>4}] WoWCC BUILDING {args.label} {progress_detail or progress} | elapsed {elapsed//60}m{elapsed%60:02d}s | quiet {silent}s | compiler CPU {cpu:.1f}% | {active_short}\\n'"
 if old not in s:
     raise SystemExit('watchdog heartbeat block not found')
 s = s.replace(old, new, 1)
@@ -79,7 +79,7 @@ old = '''            if let chunk = String(data: data, encoding: .utf8) {
             }'''
 new = '''            if let chunk = String(data: data, encoding: .utf8) {
                 let lines = chunk.split(separator: "\\n", omittingEmptySubsequences: true).map(String.init)
-                let heartbeat = lines.reversed().first { $0.contains("[build:") && $0.contains("BUILDING") }
+                let heartbeat = lines.reversed().first { $0.contains("WoWCC BUILDING") }
                 let displayLine = heartbeat ?? lines.last ?? chunk
                 Task { @MainActor in
                     let line = displayLine.trimmingCharacters(in: .whitespacesAndNewlines)
