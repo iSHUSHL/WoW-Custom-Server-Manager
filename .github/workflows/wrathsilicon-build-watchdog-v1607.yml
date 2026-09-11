@@ -1,0 +1,60 @@
+name: WrathSilicon Build Watchdog v1607
+
+on:
+  push:
+    paths:
+      - 'Scripts/apply-v1607-wrathsilicon-build-watchdog.py'
+      - '.github/workflows/wrathsilicon-build-watchdog-v1607.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-build-package:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate patcher
+        run: python3 -m py_compile Scripts/apply-v1607-wrathsilicon-build-watchdog.py
+
+      - name: Apply v1.6.7 patch
+        run: python3 Scripts/apply-v1607-wrathsilicon-build-watchdog.py
+
+      - name: Validate scripts
+        run: |
+          bash -n Scripts/install-profile.sh
+          bash -n Scripts/prepare-client.sh
+          python3 -m py_compile Scripts/enable-wotlk-flying-everywhere.py
+          python3 -m py_compile Scripts/run-core-build-watchdog.py
+
+      - name: Build WoWCC release
+        run: swift build -c release
+
+      - name: Remove temporary patch files
+        run: |
+          rm -f Scripts/apply-v1607-wrathsilicon-build-watchdog.py
+          rm -f .github/workflows/wrathsilicon-build-watchdog-v1607.yml
+
+      - name: Commit v1.6.7
+        run: |
+          git config user.name 'WoWCC Builder'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m 'WoWCC 1.6.7 WrathSilicon prep and build watchdog'
+            git push origin HEAD:main
+          fi
+
+      - name: Stage ONE-ZIP source tree
+        run: |
+          mkdir -p artifact/WoW-Custom-Server-Manager
+          git archive --format=tar HEAD | tar -xf - -C artifact/WoW-Custom-Server-Manager
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WoWServerControlCenter-1.6.7-WrathSilicon-BuildWatchdog-ONE-ZIP
+          path: artifact/WoW-Custom-Server-Manager
+          if-no-files-found: error
