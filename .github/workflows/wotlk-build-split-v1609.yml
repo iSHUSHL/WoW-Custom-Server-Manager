@@ -1,0 +1,59 @@
+name: WotLK Build Split v1609
+
+on:
+  push:
+    paths:
+      - 'Scripts/apply-v1609-wotlk-build-split.py'
+      - '.github/workflows/wotlk-build-split-v1609.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-build-package:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply v1.6.9 patch
+        run: python3 Scripts/apply-v1609-wotlk-build-split.py
+
+      - name: Validate scripts
+        run: |
+          bash -n Scripts/install-profile.sh
+          bash -n Build.command
+          python3 -m py_compile Scripts/run-core-build-watchdog.py
+          grep -Fq -- '-DTOOLS_BUILD=none' Scripts/install-profile.sh
+          grep -Fq -- '-G Ninja' Scripts/install-profile.sh
+          grep -Fq -- 'wotlk-extractors' Scripts/install-profile.sh
+
+      - name: Build WoWCC release
+        run: swift build -c release
+
+      - name: Remove temporary patch files
+        run: |
+          rm -f Scripts/apply-v1609-wotlk-build-split.py
+          rm -f .github/workflows/wotlk-build-split-v1609.yml
+
+      - name: Commit v1.6.9
+        run: |
+          git config user.name 'WoWCC Builder'
+          git config user.email 'actions@github.com'
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m 'v1.6.9 split WotLK server and extractor builds'
+            git push origin main
+          fi
+
+      - name: Stage ONE-ZIP source tree
+        run: |
+          rm -rf artifact
+          mkdir -p artifact/WoW-Custom-Server-Manager
+          git archive --format=tar HEAD | tar -xf - -C artifact/WoW-Custom-Server-Manager
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WoWServerControlCenter-1.6.9-WotLK-BuildSplit-ONE-ZIP
+          path: artifact/WoW-Custom-Server-Manager
+          if-no-files-found: error
