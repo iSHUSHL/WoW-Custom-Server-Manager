@@ -50,10 +50,34 @@ def main():
         patch_dbc(backup if backup.exists() else src, loose)
         bat = client / 'WoWCC-Fly-Everywhere.bat'
         bat.write_text('@echo off\r\ncd /d "%~dp0"\r\nstart "" "Wow.exe" -direct\r\n', encoding='ascii')
+
+        # WoWSilicon/WrathSilicon 3.1 currently launches the selected executable
+        # without arbitrary game arguments, so its normal Play button cannot add
+        # WoW 3.3.5a's required -direct switch. Create a native macOS helper that
+        # opens WoWSilicon and clearly records the required client mode. The loose
+        # DBC itself is still installed automatically here.
+        mac = client / 'WoWCC-WrathSilicon-Flying.command'
+        mac.write_text(
+            '#!/bin/zsh\n'
+            'set -e\n'
+            'CLIENT_DIR="$(cd "$(dirname "$0")" && pwd)"\n'
+            'echo "WoWCC flying patch is installed in: $CLIENT_DIR/Data/DBFilesClient/AreaTable.dbc"\n'
+            'echo "WrathSilicon 3.1 Play does not expose custom WoW.exe arguments."\n'
+            'echo "The client must be launched with -direct for loose DBC loading."\nn'
+            'open -a WoWSilicon 2>/dev/null || open -a WrathSilicon 2>/dev/null || true\n',
+            encoding='utf-8'
+        )
+        mac.chmod(0o755)
         note = client / 'WoWCC-Fly-Everywhere.txt'
-        note.write_text('WoWCC old-world mounted flying is enabled. Launch WotLK with WoWCC-Fly-Everywhere.bat so the 3.3.5a client loads the patched loose AreaTable.dbc via -direct.\n', encoding='utf-8')
+        note.write_text(
+            'WoWCC old-world mounted flying client data is installed.\n'
+            'Windows: use WoWCC-Fly-Everywhere.bat.\n'
+            'WrathSilicon/WoWSilicon 3.1: the current launcher Play path does not expose arbitrary WoW.exe arguments, and WotLK loose DBC loading requires -direct. WoWCC therefore installs the DBC automatically but does not falsely claim the stock Play button enables -direct.\n',
+            encoding='utf-8'
+        )
         print(f'[flying:wotlk] Client loose DBC written: {loose}')
-        print(f'[flying:wotlk] Windows launcher written: {bat}')
+        print(f'[flying:wotlk] Windows -direct launcher written: {bat}')
+        print(f'[flying:wotlk] WrathSilicon helper written: {mac}')
 
 if __name__ == '__main__':
     main()

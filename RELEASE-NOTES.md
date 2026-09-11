@@ -1,11 +1,19 @@
-# v1.6.6 — WotLK Mounted Flying Everywhere
+# v1.6.7 — WrathSilicon Client Prep + WotLK Build Watchdog
+
+- WotLK core builds now use a live watchdog with elapsed time, child compiler CPU and progress heartbeats.
+- WotLK parallelism is capped at 8 jobs to avoid memory-pressure stalls on Apple Silicon.
+- A build is only terminated as stalled after 20+ minutes without output and repeated near-zero compiler CPU checks.
+- Flying-everywhere client preparation remains automatic and now emits WrathSilicon-specific helper/instructions rather than pretending its stock Play button passes `-direct`.
+- All build diagnostics remain in WoWCC Logs via the existing core build log.
+
+# v1.6.7 — WotLK Mounted Flying Everywhere
 
 - WotLK flying mounts can be used in Eastern Kingdoms and Kalimdor after rebuilding the WotLK core and running Prepare Client Data.
 - Prepare Client Data patches AreaTable.dbc and creates `WoWCC-Fly-Everywhere.bat` for Windows 3.3.5a clients using `-direct`.
 - Server-side flight-area checks are patched during WotLK core installation.
 - Existing PlayerBots support remains intact for normal and Heroic dungeon groups.
 
-# v1.6.6 — Expansion Service Manager
+# v1.6.7 — Expansion Service Manager
 
 - Fixes the root expansion-switch bug: changing TBC → WotLK (or any era) now stops the OLD profile, not the newly selected profile.
 - Adds live per-expansion DB / Auth / World status indicators to Expansion Manager.
