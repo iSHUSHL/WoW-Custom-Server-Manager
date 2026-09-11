@@ -1227,10 +1227,20 @@ final class ServerModel: ObservableObject {
             arguments = ["-c", aliasConf.path]
         }
 
+        var environment: [String: String]? = nil
+        if selectedExpansion == .wotlk && name == "worldserver" {
+            environment = [
+                "AC_PLAYERBOTS_DATABASE_INFO": "127.0.0.1;\(mysqlPort);wowcc;wowcc;acore_playerbots",
+                "AC_PLAYERBOTS_DATABASE_WORKERTHREADS": "1",
+                "AC_PLAYERBOTS_DATABASE_SYNCHTHREADS": "1"
+            ]
+        }
+
         try process.start(
             executable: aliasBin,
             arguments: arguments,
             currentDirectory: aliasProfile.appendingPathComponent("bin"),
+            environment: environment,
             interactive: interactive
         )
     }

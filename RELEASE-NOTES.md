@@ -1,3 +1,11 @@
+# v1.5.97 — WotLK PlayerBots DB Environment Override
+
+- Forces the PlayerBots database connection through AzerothCore's highest-priority `AC_PLAYERBOTS_DATABASE_INFO` environment override.
+- World Server now receives `127.0.0.1;3307;wowcc;wowcc;acore_playerbots` directly at process launch.
+- Also pins PlayerBots DB worker/sync threads to 1.
+- This bypasses any stale worldserver/module config that still contains port 3306.
+- Keeps the clean in-app titlebar from 1.5.95.
+
 # v1.5.96 — WotLK PlayerBots worldserver.conf DB Fix
 
 - Fixes the remaining WotLK PlayerBots startup failure on MySQL 127.0.0.1:3306.
