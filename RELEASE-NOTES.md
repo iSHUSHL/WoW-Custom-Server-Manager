@@ -1,3 +1,11 @@
+# v1.6.11 — WotLK Rebuild Stability Mode
+
+- WotLK core rebuild now stops World, Auth and managed MySQL before compiling; rebuilds can no longer run while the realm is still online.
+- WotLK core compilation uses one Ninja job for maximum stability on Apple Silicon.
+- Fixed the build-status regression where the watchdog emitted a new prefix but the Swift UI still searched for `[build:...]`; live progress/CPU heartbeats are visible again.
+- Resumable Ninja build cache from 1.6.10 remains enabled, so interrupted builds reuse completed objects.
+- A long-running compiler is left alone while CPU is active; a genuinely idle build is terminated by the existing watchdog.
+
 # v1.6.10 — Resumable WotLK Build + Real Ninja Progress
 
 - WotLK rebuilds now preserve a compatible Ninja build directory and resume already compiled objects after an interruption instead of restarting from 0%.

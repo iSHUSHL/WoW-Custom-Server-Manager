@@ -646,7 +646,17 @@ final class ServerModel: ObservableObject {
             } catch { statusMessage = "MySQL restart failed: \(error.localizedDescription)" }
         }
     }
-    func installSelectedProfile() { runScript("install-profile.sh", args: [selectedExpansion.rawValue]) }
+    func installSelectedProfile() {
+        let expansion = selectedExpansion
+        desiredWorldRunning = false
+        worldWatchdogRestartInProgress = false
+        stopAll()
+        statusMessage = "Stopping \(expansion.shortTitle) services before core rebuild…"
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+            guard let self else { return }
+            self.runScript("install-profile.sh", args: [expansion.rawValue])
+        }
+    }
     func installOrRepairPlayerBots() {
         guard playerBotsSupported else { statusMessage = "PlayerBots are available for TBC and WotLK."; return }
         guard profileInstalled else { statusMessage = "Build the \(selectedExpansion.shortTitle) core with PlayerBots first."; return }
