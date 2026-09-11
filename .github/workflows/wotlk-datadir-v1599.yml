@@ -45,3 +45,5 @@ jobs:
           name: WoWServerControlCenter-1.5.99-WotLKDataDirFix-ONE-ZIP
           path: artifact/WoW-Custom-Server-Manager
           if-no-files-found: error
+
+# retry 2
