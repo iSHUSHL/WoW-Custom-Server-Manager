@@ -364,7 +364,7 @@ JOBS="$(sysctl -n hw.logicalcpu 2>/dev/null || echo 4)"
 # WotLK PlayerBots can make Apple Silicon appear frozen around 2-4% when too many
 # translation units compile at once. Cap only WotLK to a memory-safe level; the
 # watchdog below still reports active compiler CPU while a single heavy object runs.
-if [[ "$PROFILE" == "wotlk" && "$JOBS" -gt 8 ]]; then JOBS=8; fi
+if [[ "$PROFILE" == "wotlk" && "$JOBS" -gt 4 ]]; then JOBS=4; fi
 ARCH="$(uname -m)"
 log "Configuring for macOS $ARCH"
 
@@ -603,7 +603,7 @@ if [[ "$PROFILE" == "cataclysm" || "$PROFILE" == "mop" ]]; then
     fi
   fi
 else
-  log "Building with $JOBS parallel job(s) + live stall watchdog"
+  log "Building with $JOBS parallel job(s) + aggressive live stall watchdog"
   WATCHDOG="$(cd "$(dirname "$0")" && pwd)/run-core-build-watchdog.py"
   if ! python3 "$WATCHDOG" --build "$BUILD" --jobs "$JOBS" --log "$BUILD_LOG" --label "$PROFILE"; then
     log "Parallel build failed or truly stalled. Re-running one job verbosely to expose the real error…"

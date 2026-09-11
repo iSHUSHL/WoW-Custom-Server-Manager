@@ -56,20 +56,22 @@ def reader():
 threading.Thread(target=reader, daemon=True).start()
 idle_zero=0
 while proc.poll() is None:
-    time.sleep(20)
+    time.sleep(5)
     elapsed=int(time.time()-start)
     silent=int(time.time()-last_output)
     cpu, active=descendants_cpu()
     active_short=active[-120:] if active else 'waiting for compiler output'
     heartbeat=f'[build:{args.label}] BUILDING {progress} | elapsed {elapsed//60}m{elapsed%60:02d}s | no-output {silent}s | child CPU {cpu:.1f}% | {active_short}\n'
     sys.stdout.write(heartbeat); sys.stdout.flush(); log.write(heartbeat)
-    # Only declare a true stall after 20 minutes with no output AND essentially no child CPU.
-    if silent >= 1200 and cpu < 0.5:
+    # A compiler that is genuinely working may be silent for minutes, so CPU wins.
+    # Recover only when there has been no output for 3 minutes AND the entire
+    # build process tree is essentially idle across repeated samples.
+    if silent >= 180 and cpu < 0.5:
         idle_zero += 1
     else:
         idle_zero = 0
-    if idle_zero >= 3:
-        msg=f'[build:{args.label}] ERROR: build appears genuinely stalled: >20m no output and no active compiler CPU. Terminating build process group.\n'
+    if idle_zero >= 6:
+        msg=f'[build:{args.label}] ERROR: build appears genuinely stalled: >3m no output and no active compiler CPU. Terminating build process group.\n'
         sys.stderr.write(msg); log.write(msg)
         try: os.killpg(proc.pid, signal.SIGTERM)
         except Exception: pass
