@@ -364,11 +364,13 @@ JOBS="$(sysctl -n hw.logicalcpu 2>/dev/null || echo 4)"
 # WotLK PlayerBots can make Apple Silicon appear frozen around 2-4% when too many
 # translation units compile at once. Cap only WotLK to a memory-safe level; the
 # watchdog below still reports active compiler CPU while a single heavy object runs.
-if [[ "$PROFILE" == "wotlk" && "$JOBS" -gt 4 ]]; then JOBS=4; fi
+if [[ "$PROFILE" == "wotlk" && "$JOBS" -gt 2 ]]; then JOBS=2; fi
 ARCH="$(uname -m)"
 log "Configuring for macOS $ARCH"
 
 if [[ "$PROFILE" == "wotlk" ]]; then
+  command -v ninja >/dev/null 2>&1 || fail "Ninja is required for the WotLK PlayerBots build. Run Install Dependencies first."
+  log "WotLK build backend: Ninja (server first, extractors isolated afterward)"
   MYSQL_INCLUDE=""
   MYSQL_LIBRARY=""
   for p in "$MYSQL_PREFIX/include/mysql" "$BREW_PREFIX/include/mysql"; do [[ -d "$p" ]] && MYSQL_INCLUDE="$p" && break; done
@@ -377,10 +379,11 @@ if [[ "$PROFILE" == "wotlk" ]]; then
   [[ -n "$MYSQL_LIBRARY" ]] || fail "libmysqlclient.dylib was not found under $MYSQL_PREFIX"
 
   CMAKE_ARGS=(
+    -G Ninja
     -S "$SRC_ROOT" -B "$BUILD"
     -DCMAKE_BUILD_TYPE=Release
     -DCMAKE_INSTALL_PREFIX="$PROFILE_ROOT"
-    -DTOOLS_BUILD=all
+    -DTOOLS_BUILD=none
     -DSCRIPTS=static
     -DMYSQL_ADD_INCLUDE_PATH="$MYSQL_INCLUDE"
     -DMYSQL_LIBRARY="$MYSQL_LIBRARY"
@@ -677,8 +680,10 @@ EOF_WOWCC_TOOLS
     if ! cmake "${EXTRACT_ARGS[@]}" 2>&1 | tee "$EXTRACT_LOG"; then
       fail "WotLK maps-only extractor configure failed. See $EXTRACT_LOG in WoWCC Logs."
     fi
-    if ! cmake --build "$EXTRACT_BUILD" --config Release --parallel "$JOBS" 2>&1 | tee -a "$EXTRACT_LOG"; then
-      fail "WotLK maps-only extractor build failed. See $EXTRACT_LOG in WoWCC Logs."
+    log "Building isolated WotLK map extractors with Ninja ($JOBS job(s))…"
+    WATCHDOG="$(cd "$(dirname "$0")" && pwd)/run-core-build-watchdog.py"
+    if ! python3 "$WATCHDOG" --build "$EXTRACT_BUILD" --jobs "$JOBS" --log "$EXTRACT_LOG" --label "wotlk-extractors"; then
+      fail "WotLK maps-only extractor build failed or stalled. See $EXTRACT_LOG in WoWCC Logs."
     fi
     cmake --install "$EXTRACT_BUILD" --config Release 2>&1 | tee -a "$EXTRACT_LOG"
 

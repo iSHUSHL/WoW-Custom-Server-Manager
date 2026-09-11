@@ -61,7 +61,7 @@ while proc.poll() is None:
     silent=int(time.time()-last_output)
     cpu, active=descendants_cpu()
     active_short=active[-120:] if active else 'waiting for compiler output'
-    heartbeat=f'[build:{args.label}] BUILDING {progress} | elapsed {elapsed//60}m{elapsed%60:02d}s | no-output {silent}s | child CPU {cpu:.1f}% | {active_short}\n'
+    heartbeat=f'[ {progress:>4}] WoWCC BUILDING {args.label} | elapsed {elapsed//60}m{elapsed%60:02d}s | no-output {silent}s | child CPU {cpu:.1f}% | {active_short}\n'
     sys.stdout.write(heartbeat); sys.stdout.flush(); log.write(heartbeat)
     # A compiler that is genuinely working may be silent for minutes, so CPU wins.
     # Recover only when there has been no output for 3 minutes AND the entire

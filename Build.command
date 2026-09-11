@@ -42,6 +42,7 @@ if command -v brew >/dev/null 2>&1; then
   brew list git >/dev/null 2>&1 || brew install git
   brew list readline >/dev/null 2>&1 || brew install readline
   brew list pkgconf >/dev/null 2>&1 || brew install pkgconf
+  brew list ninja >/dev/null 2>&1 || brew install ninja
 else
   fail "Homebrew is required to provision the server runtime."
 fi
@@ -76,8 +77,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleName</key><string>WoW Server Control Center</string>
   <key>CFBundleDisplayName</key><string>WoW Server Control Center</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>1.6.8</string>
-  <key>CFBundleVersion</key><string>1608</string>
+  <key>CFBundleShortVersionString</key><string>1.6.9</string>
+  <key>CFBundleVersion</key><string>1609</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSPrincipalClass</key><string>NSApplication</string>

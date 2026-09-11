@@ -1,3 +1,12 @@
+# v1.6.9 — WotLK Server/Extractor Build Split
+
+- Fixes repeated WotLK rebuild stalls at 0–3% in Recast, Detour and g3dlite by removing map extractor tools from the main authserver/worldserver + PlayerBots build.
+- Main WotLK build now uses `TOOLS_BUILD=none`, which is the AzerothCore-supported server-only configuration.
+- Uses Ninja for WotLK builds and caps Apple Silicon compilation to 2 jobs for stable memory/CPU scheduling.
+- Required map/vmap/mmap extractors are still built automatically afterward in a separate `TOOLS_BUILD=maps-only` phase.
+- The isolated extractor build also uses the live WoWCC watchdog and writes to `cmake-wotlk-extractors.log` in WoWCC Logs.
+- Existing PlayerBots, WrathSilicon preparation and mounted-flying-everywhere changes remain intact.
+
 # v1.6.8 — WotLK Build Recovery
 
 - WotLK PlayerBots compile capped to 4 parallel jobs on macOS to avoid early 2–4% memory-pressure stalls.
