@@ -1,0 +1,51 @@
+name: WotLK Stability v1611
+
+on:
+  push:
+    paths:
+      - '.github/workflows/wotlk-stability-v1611.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-build-package:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply v1.6.11 patch
+        run: python3 Scripts/apply-v1611-wotlk-stability.py
+
+      - name: Validate scripts
+        run: |
+          bash -n Scripts/install-profile.sh
+          python3 -m py_compile Scripts/run-core-build-watchdog.py
+
+      - name: Build WoWCC release
+        run: swift build -c release
+
+      - name: Remove temporary patch files
+        run: |
+          rm -f Scripts/apply-v1611-wotlk-stability.py
+          rm -f .github/workflows/wotlk-stability-v1611.yml
+
+      - name: Commit v1.6.11
+        run: |
+          git config user.name "WoWCC Build Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "v1.6.11 WotLK rebuild stability mode" || true
+          git push origin main
+
+      - name: Stage ONE-ZIP source tree
+        run: |
+          mkdir -p artifact/WoW-Custom-Server-Manager
+          git archive --format=tar HEAD | tar -xf - -C artifact/WoW-Custom-Server-Manager
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WoWServerControlCenter-1.6.11-WotLK-Stability-ONE-ZIP
+          path: artifact/WoW-Custom-Server-Manager
+          if-no-files-found: error
