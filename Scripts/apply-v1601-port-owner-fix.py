@@ -42,7 +42,8 @@ if 'private func ensureSelectedServerOwnsPort' not in s:
             let managedByWoWCC = command.contains("/.wowcc/runtime/profiles/") || command.contains("WoWServerControlCenter/runtime/profiles/")
             let knownServer = knownBinaries.contains(where: command.contains)
             guard managedByWoWCC && knownServer else {
-                throw err("Port \(port) is already owned by another process: \(command.isEmpty ? \"PID \\(pid)\" : command). Stop it before starting \(selectedExpansion.shortTitle).")
+                let ownerDescription = command.isEmpty ? "PID \(pid)" : command
+                throw err("Port \(port) is already owned by another process: \(ownerDescription). Stop it before starting \(selectedExpansion.shortTitle).")
             }
 
             let killer = Process()
@@ -78,14 +79,9 @@ if 'private func ensureSelectedServerOwnsPort' not in s:
     if anchor not in s: raise SystemExit('waitForService anchor missing')
     s=s.replace(anchor,helper+anchor,1)
 
-# Start All: validate ownership immediately before auth/world decisions.
 s=s.replace('''                statusMessage = "2/3 Starting \\(authBinaryName)…"\n                if !portOpen(authPort) {\n''','''                statusMessage = "2/3 Starting \\(authBinaryName)…"\n                try ensureSelectedServerOwnsPort(authPort, expectedBinary: authBinaryName)\n                if !portOpen(authPort) {\n''',1)
 s=s.replace('''                statusMessage = "3/3 Starting \\(worldBinaryName)…"\n                if !portOpen(worldPort) {\n''','''                statusMessage = "3/3 Starting \\(worldBinaryName)…"\n                try ensureSelectedServerOwnsPort(worldPort, expectedBinary: worldBinaryName)\n                if !portOpen(worldPort) {\n''',1)
-
-# Direct Realm start.
 s=s.replace('''                guard realmDatabaseReady || probeRealmDatabaseReady() else { throw err("Realm database is not ready.") }\n                if !portOpen(authPort) {\n''','''                guard realmDatabaseReady || probeRealmDatabaseReady() else { throw err("Realm database is not ready.") }\n                try ensureSelectedServerOwnsPort(authPort, expectedBinary: authBinaryName)\n                if !portOpen(authPort) {\n''',1)
-
-# Direct World start: target the occurrence inside startWorldServer.
 marker='''    func startWorldServer() {'''
 pos=s.find(marker)
 if pos!=-1:
@@ -95,10 +91,8 @@ if pos!=-1:
     if old in tail:
         tail=tail.replace(old,new,1)
         s=s[:pos]+tail
-
 p.write_text(s)
 
-# bump version
 b=Path('Build.command')
 t=b.read_text().replace('<string>1.6.0</string>','<string>1.6.1</string>').replace('<string>1600</string>','<string>1601</string>')
 b.write_text(t)
