@@ -8,6 +8,9 @@ on:
 permissions:
   contents: write
 
+env:
+  WOWCC_V1601_RETRY: '2'
+
 jobs:
   patch-build-package:
     runs-on: macos-15
