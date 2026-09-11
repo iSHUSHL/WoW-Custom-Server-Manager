@@ -1,3 +1,10 @@
+# v1.5.96 — WotLK PlayerBots worldserver.conf DB Fix
+
+- Fixes the remaining WotLK PlayerBots startup failure on MySQL 127.0.0.1:3306.
+- The PlayerBots database pool reads `PlayerbotsDatabaseInfo` from `worldserver.conf`; WoWCC now self-heals that core setting to managed MySQL 3307 before every start.
+- Keeps the all-playerbots.conf repair and clean titlebar changes from 1.5.95.
+- No core rebuild, client preparation, or PlayerBots repopulation required.
+
 # v1.5.95 — PlayerBots Runtime Config Sweep + Clean Titlebar
 
 - Fixes persistent WotLK PlayerBots startup attempts on MySQL 3306 by repairing every runtime playerbots.conf inside the managed WotLK profile before World starts.

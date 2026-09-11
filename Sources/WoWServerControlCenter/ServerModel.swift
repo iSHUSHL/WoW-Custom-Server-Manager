@@ -716,7 +716,8 @@ final class ServerModel: ObservableObject {
             let databaseInfo: [(String, String)] = [
                 ("LoginDatabaseInfo", "acore_auth"),
                 ("WorldDatabaseInfo", "acore_world"),
-                ("CharacterDatabaseInfo", "acore_characters")
+                ("CharacterDatabaseInfo", "acore_characters"),
+                ("PlayerbotsDatabaseInfo", "acore_playerbots")
             ]
 
             for configURL in configs where fm.fileExists(atPath: configURL.path) {
