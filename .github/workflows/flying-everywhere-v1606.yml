@@ -18,6 +18,18 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Repair patcher quoting
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('Scripts/apply-v1606-flying-everywhere.py')
+          s = p.read_text()
+          s = s.replace("insert = r'''  log", 'insert = r"""  log', 1)
+          s = s.replace("\nfi\n'''\ns = s.replace(anchor, insert, 1)", '\nfi\n"""\ns = s.replace(anchor, insert, 1)', 1)
+          p.write_text(s)
+          PY
+          python3 -m py_compile Scripts/apply-v1606-flying-everywhere.py
+
       - name: Apply v1.6.6 patch
         run: python3 Scripts/apply-v1606-flying-everywhere.py
 
