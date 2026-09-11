@@ -955,6 +955,51 @@ final class ServerModel: ObservableObject {
         statusMessage = "WotLK PlayerBots database ready — \(verifiedCount) tables"
     }
 
+    private func repairWotLKRealmRegistration() throws {
+        guard selectedExpansion == .wotlk else { return }
+
+        let client = try dbClient()
+        // Keep WotLK realm registration isolated in AzerothCore's auth DB.
+        // Old CMaNGOS/MaNGOS rows must never leak into the WotLK realm list.
+        try client.execute(
+            database: "acore_auth",
+            sql: "DELETE FROM realmlist WHERE id <> 1 AND LOWER(name) LIKE '%mangos%';"
+        )
+        try client.execute(
+            database: "acore_auth",
+            sql: """
+            INSERT INTO realmlist
+                (id,name,address,localAddress,localSubnetMask,port,icon,flag,timezone,allowedSecurityLevel,population,gamebuild)
+            VALUES
+                (1,'WoWCC WotLK','127.0.0.1','127.0.0.1','255.255.255.0',8085,0,0,1,0,0,12340)
+            ON DUPLICATE KEY UPDATE
+                name=VALUES(name),
+                address=VALUES(address),
+                localAddress=VALUES(localAddress),
+                localSubnetMask=VALUES(localSubnetMask),
+                port=VALUES(port),
+                icon=VALUES(icon),
+                flag=0,
+                timezone=VALUES(timezone),
+                allowedSecurityLevel=0,
+                population=0,
+                gamebuild=12340;
+            """
+        )
+
+        let logURL = logs.appendingPathComponent("realm-registration.log")
+        let stamp = ISO8601DateFormatter().string(from: Date())
+        let line = "[\\(stamp)] WotLK realm repaired: id=1 name=WoWCC WotLK address=127.0.0.1 port=8085 flag=0 build=12340\\n"
+        try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
+        if FileManager.default.fileExists(atPath: logURL.path), let handle = try? FileHandle(forWritingTo: logURL) {
+            defer { try? handle.close() }
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: Data(line.utf8))
+        } else {
+            try? line.write(to: logURL, atomically: true, encoding: .utf8)
+        }
+    }
+
     private func waitForWorldReadyPlayerBotsAware() async throws {
         // First PlayerBots launch builds large item/equipment caches before opening 8085.
         // Official PlayerBots documentation explicitly warns first startup takes time.
@@ -1066,6 +1111,7 @@ final class ServerModel: ObservableObject {
                 guard realmDatabaseReady else {
                     throw err("Realm database is not ready. Run Setup / Repair Realm first and wait for REALM DATABASE READY.")
                 }
+                try repairWotLKRealmRegistration()
 
                 statusMessage = "Checking DBC/maps/vmaps/mmaps…"
                 try validateClientDataForStart()
@@ -1132,6 +1178,7 @@ final class ServerModel: ObservableObject {
                 try repairCMaNGOSDatabaseConfigIfNeeded()
                 guard portOpen(Int32(mysqlPort)) else { throw err("MySQL must be running before World Server.") }
                 guard realmDatabaseReady || probeRealmDatabaseReady() else { throw err("Realm database is not ready.") }
+                try repairWotLKRealmRegistration()
                 try validateClientDataForStart()
                 if !portOpen(worldPort) {
                     try await ensureWotLKPlayerBotsDatabaseReady()
@@ -1181,6 +1228,7 @@ final class ServerModel: ObservableObject {
                 try repairCMaNGOSDatabaseConfigIfNeeded()
                 guard portOpen(Int32(mysqlPort)) else { throw err("MySQL must be running before Realm Server.") }
                 guard realmDatabaseReady || probeRealmDatabaseReady() else { throw err("Realm database is not ready.") }
+                try repairWotLKRealmRegistration()
                 if !portOpen(authPort) {
                     try startAuth()
                     try await waitForService(port: authPort, process: auth, label: authBinaryName, timeoutSeconds: 20, logName: "authserver.log")

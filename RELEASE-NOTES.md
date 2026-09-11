@@ -1,3 +1,11 @@
+# v1.6.0 — WotLK Realm Registration Fix
+
+- Repairs `acore_auth.realmlist` automatically before WotLK Auth/World startup.
+- Forces realm ID 1 to `WoWCC WotLK`, port 8085, build 12340, `flag=0` (enabled), and security level 0.
+- Removes stale MaNGOS-named rows from the WotLK AzerothCore auth database only; Vanilla/TBC realm databases are untouched.
+- Setup / Repair Realm now resets all realm status fields so an old disabled flag cannot survive.
+- Adds `realm-registration.log`, visible automatically in WoWCC Logs.
+
 # v1.5.99 — WotLK Absolute DataDir Fix
 
 - Fixes WotLK World startup using `DataDir ./` while WoWCC client data lives in the managed profile `data` directory.

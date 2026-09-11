@@ -117,7 +117,7 @@ PY
   fi
 
   # Ensure the local realm exists and points back to this Mac.
-  "${M[@]}" acore_auth -e "INSERT INTO realmlist (id,name,address,localAddress,localSubnetMask,port,icon,flag,timezone,allowedSecurityLevel,population,gamebuild) VALUES (1,'WoW Control Center','127.0.0.1','127.0.0.1','255.255.255.0',8085,0,0,1,0,0,12340) ON DUPLICATE KEY UPDATE name=VALUES(name),address=VALUES(address),localAddress=VALUES(localAddress),port=VALUES(port),gamebuild=VALUES(gamebuild);"
+  "${M[@]}" acore_auth -e "DELETE FROM realmlist WHERE id <> 1 AND LOWER(name) LIKE '%mangos%'; INSERT INTO realmlist (id,name,address,localAddress,localSubnetMask,port,icon,flag,timezone,allowedSecurityLevel,population,gamebuild) VALUES (1,'WoWCC WotLK','127.0.0.1','127.0.0.1','255.255.255.0',8085,0,0,1,0,0,12340) ON DUPLICATE KEY UPDATE name=VALUES(name),address=VALUES(address),localAddress=VALUES(localAddress),localSubnetMask=VALUES(localSubnetMask),port=VALUES(port),icon=0,flag=0,timezone=VALUES(timezone),allowedSecurityLevel=0,population=0,gamebuild=12340;"
 
   touch "$PR/.realm-db-ready"
   echo "[realm:wotlk] REALM DATABASE READY"
