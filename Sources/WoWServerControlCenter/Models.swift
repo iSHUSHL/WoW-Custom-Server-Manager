@@ -1,7 +1,7 @@
 import Foundation
 
 enum ExpansionID: String, CaseIterable, Codable, Identifiable {
-    case vanilla, tbc, wotlk, cataclysm, mop, wod, legion, bfa, shadowlands, dragonflight, warWithin
+    case vanilla, tbc, wotlk, cataclysm, mop
     var id: String { rawValue }
 
     var title: String {
@@ -11,12 +11,6 @@ enum ExpansionID: String, CaseIterable, Codable, Identifiable {
         case .wotlk: return "Wrath of the Lich King 3.3.5a"
         case .cataclysm: return "Cataclysm 4.3.4 (15595)"
         case .mop: return "Mists of Pandaria 5.4.8 (18414)"
-        case .wod: return "Warlords of Draenor"
-        case .legion: return "Legion"
-        case .bfa: return "Battle for Azeroth"
-        case .shadowlands: return "Shadowlands"
-        case .dragonflight: return "Dragonflight"
-        case .warWithin: return "The War Within"
         }
     }
 
@@ -27,12 +21,6 @@ enum ExpansionID: String, CaseIterable, Codable, Identifiable {
         case .wotlk: return "WotLK"
         case .cataclysm: return "Cata"
         case .mop: return "MoP"
-        case .wod: return "WoD"
-        case .legion: return "Legion"
-        case .bfa: return "BfA"
-        case .shadowlands: return "SL"
-        case .dragonflight: return "DF"
-        case .warWithin: return "TWW"
         }
     }
 
@@ -40,7 +28,6 @@ enum ExpansionID: String, CaseIterable, Codable, Identifiable {
         switch self {
         case .vanilla, .tbc, .wotlk: return .supported
         case .cataclysm, .mop: return .community
-        default: return .experimental
         }
     }
 
@@ -51,7 +38,6 @@ enum ExpansionID: String, CaseIterable, Codable, Identifiable {
         case .wotlk: return "AzerothCore Playerbot fork + mod-playerbots"
         case .cataclysm: return "Cataclysm Preservation TrinityCore 4.3.4"
         case .mop: return "Project SkyFire 5.4.8"
-        default: return "Imported compatible core"
         }
     }
 
@@ -62,7 +48,6 @@ enum ExpansionID: String, CaseIterable, Codable, Identifiable {
         case .wotlk: return "3.3.5a build 12340 client"
         case .cataclysm: return "4.3.4 build 15595 client"
         case .mop: return "5.4.8 build 18414 client"
-        default: return "Client build matching the imported core"
         }
     }
 
@@ -73,12 +58,6 @@ enum ExpansionID: String, CaseIterable, Codable, Identifiable {
         case .wotlk: return "World of Warcraft 3.3.5a build 12340 client download"
         case .cataclysm: return "World of Warcraft Cataclysm 4.3.4 build 15595 client download"
         case .mop: return "World of Warcraft Mists of Pandaria 5.4.8 build 18414 client download"
-        case .wod: return "World of Warcraft Warlords of Draenor compatible client download"
-        case .legion: return "World of Warcraft Legion compatible client download"
-        case .bfa: return "World of Warcraft Battle for Azeroth compatible client download"
-        case .shadowlands: return "World of Warcraft Shadowlands compatible client download"
-        case .dragonflight: return "World of Warcraft Dragonflight compatible client download"
-        case .warWithin: return "World of Warcraft The War Within compatible client download"
         }
     }
 
@@ -86,7 +65,7 @@ enum ExpansionID: String, CaseIterable, Codable, Identifiable {
         switch self {
         case .wotlk: return .azerothCore
         case .vanilla, .tbc: return .cmangos
-        default: return .custom
+        case .cataclysm, .mop: return .custom
         }
     }
 }
@@ -262,7 +241,6 @@ struct GearSetSummary: Identifiable, Hashable {
     let items: [CatalogEntry]
 }
 
-
 struct InventoryEntry: Identifiable, Hashable {
     let id: Int
     let itemEntry: Int
@@ -270,7 +248,6 @@ struct InventoryEntry: Identifiable, Hashable {
     let bag: Int
     let slot: Int
 }
-
 
 enum HealthCheckState: String, Codable, Hashable {
     case pass, warning, fail
