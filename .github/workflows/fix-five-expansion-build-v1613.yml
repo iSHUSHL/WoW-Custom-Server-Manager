@@ -1,0 +1,97 @@
+name: Five Expansion Build Fix v1613
+
+on:
+  push:
+    paths:
+      - '.github/workflows/fix-five-expansion-build-v1613.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  repair-build-package:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Remove stale post-MoP enum cases
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('Sources/WoWServerControlCenter/ServerModel.swift')
+          s = p.read_text()
+          old = '''        case .mop:
+              return ["Warrior","Paladin","Hunter","Rogue","Priest","Death Knight","Shaman","Mage","Warlock","Monk","Druid"]
+          case .wod:
+              return ["Warrior","Paladin","Hunter","Rogue","Priest","Death Knight","Shaman","Mage","Warlock","Monk","Druid"]
+          case .legion, .bfa, .shadowlands, .dragonflight, .warWithin:
+              return ["Warrior","Paladin","Hunter","Rogue","Priest","Death Knight","Shaman","Mage","Warlock","Monk","Druid","Demon Hunter"]
+          }'''
+          new = '''        case .mop:
+              return ["Warrior","Paladin","Hunter","Rogue","Priest","Death Knight","Shaman","Mage","Warlock","Monk","Druid"]
+          }'''
+          if old not in s:
+              raise SystemExit('Expected stale characterCreatorClasses block not found')
+          s = s.replace(old, new, 1)
+          # With exactly five enum cases the race switch is exhaustive; remove obsolete fallback.
+          old2 = '''        case .mop:
+              return ["Human","Dwarf","Night Elf","Gnome","Draenei","Worgen","Pandaren","Orc","Undead","Tauren","Troll","Blood Elf","Goblin"]
+          default:
+              // Later profiles are custom/experimental. Keep the modern common
+              // races visible without pretending the app can validate every
+              // custom core's allied-race implementation.
+              return ["Human","Dwarf","Night Elf","Gnome","Draenei","Worgen","Pandaren","Orc","Undead","Tauren","Troll","Blood Elf","Goblin"]
+          }'''
+          new2 = '''        case .mop:
+              return ["Human","Dwarf","Night Elf","Gnome","Draenei","Worgen","Pandaren","Orc","Undead","Tauren","Troll","Blood Elf","Goblin"]
+          }'''
+          if old2 in s:
+              s = s.replace(old2, new2, 1)
+          p.write_text(s)
+          PY
+
+      - name: Verify no removed expansion enum references remain
+        shell: bash
+        run: |
+          if grep -R -nE '\.(wod|legion|bfa|shadowlands|dragonflight|warWithin)\b' Sources; then
+            echo 'Removed expansion enum reference still exists'
+            exit 1
+          fi
+
+      - name: Swift release build
+        run: swift build -c release
+
+      - name: Verify shell scripts
+        shell: bash
+        run: |
+          find Scripts -type f -name '*.sh' -print0 | while IFS= read -r -d '' f; do bash -n "$f"; done
+          bash -n Build.command
+          bash -n Verify.command
+
+      - name: Commit repaired source
+        shell: bash
+        run: |
+          rm -f .github/workflows/fix-five-expansion-build-v1613.yml
+          git config user.name 'WoWCC Build Bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m 'WoWCC 1.6.13: fix five-expansion build'
+            git push origin main
+          fi
+
+      - name: Stage ONE-ZIP source artifact
+        shell: bash
+        run: |
+          rm -rf artifact
+          mkdir -p artifact/WoWServerControlCenter-1.6.13
+          git checkout-index -a -f --prefix="$PWD/artifact/WoWServerControlCenter-1.6.13/"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WoWServerControlCenter-1.6.13-Five-Expansion-Build-Fix-ONE-ZIP
+          path: artifact/WoWServerControlCenter-1.6.13
