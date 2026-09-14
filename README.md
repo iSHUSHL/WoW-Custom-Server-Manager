@@ -4,32 +4,54 @@
 
 <h1 align="center">WoW Server Control Center for macOS</h1>
 
-<p align="center"><strong>Native macOS control center for local Vanilla, TBC, and WotLK emulator realms.</strong></p>
+<p align="center"><strong>Native macOS control center for Vanilla, TBC, WotLK, Cataclysm, and Mists of Pandaria emulator realms.</strong></p>
 
 > **Work in progress.** WoW Server Control Center (WoWCC) is an actively developed native SwiftUI macOS application for building, configuring, running, monitoring, and administering local World of Warcraft emulator realms from one GUI.
 
-The main supported targets are **Vanilla 1.12.1**, **The Burning Crusade 2.4.3**, and **Wrath of the Lich King 3.3.5a**. Each expansion uses its own compatible server core, database, runtime, configuration, and game client. The project is designed especially for Apple Silicon Macs and can be built without opening the Xcode GUI.
+## Project scope — five expansions only
 
-## Current expansion targets
+WoWCC is intentionally focused on exactly five World of Warcraft eras:
 
-| Expansion | Client | Server core | Status |
+1. **Vanilla / Classic 1.12.1**
+2. **The Burning Crusade 2.4.3**
+3. **Wrath of the Lich King 3.3.5a**
+4. **Cataclysm 4.3.4**
+5. **Mists of Pandaria 5.4.8**
+
+**WoWCC will not target later expansions.** Warlords of Draenor, Legion, Battle for Azeroth, Shadowlands, Dragonflight, The War Within, and later retail expansions are outside the project roadmap. Keeping the scope to these five eras lets development concentrate on reliable installation, databases, client data, administration, collections, bots, and gameplay tooling instead of adding partially supported expansion profiles.
+
+## Current development status
+
+| Expansion | Client | Server core | Project status |
 | --- | --- | --- | --- |
-| Vanilla | 1.12.1 | CMaNGOS Classic | Work in progress |
-| The Burning Crusade | 2.4.3 / 8606 | CMaNGOS TBC + PlayerBots | Active development |
-| Wrath of the Lich King | 3.3.5a / 12340 | AzerothCore | Primary turnkey path |
+| Vanilla | 1.12.1 / 5875 | CMaNGOS Classic | **Implemented — continuing fixes/polish** |
+| The Burning Crusade | 2.4.3 / 8606 | CMaNGOS TBC + PlayerBots | **Implemented — continuing PlayerBots/stability work** |
+| Wrath of the Lich King | 3.3.5a / 12340 | AzerothCore Playerbot fork + mod-playerbots | **Implemented — primary/mature path** |
+| Cataclysm | 4.3.4 / 15595 | Cataclysm Preservation TrinityCore 4.3.4 | **In active development** |
+| Mists of Pandaria | 5.4.8 / 18414 | Project SkyFire 5.4.8 | **In active development** |
 
-Experimental/community profiles also exist for later expansions, but Vanilla, TBC, and WotLK are the main focus of this project.
+### What has been done
+
+The first three eras — **Vanilla, TBC, and WotLK** — already have the main WoWCC management workflow: isolated expansion profiles, managed database/runtime, core installation/rebuild, client linking and data preparation, realm controls, accounts/characters, collections, logs, health checks, backups/cleanup, and LAN-oriented server administration. TBC and WotLK also include PlayerBots work, with WotLK currently the most mature PlayerBots path.
+
+WoWCC also already contains important groundwork for **Cataclysm and MoP**, including expansion profiles, database/client-data handling and Collection Browser integration. Cataclysm has dedicated DB2/item-catalog handling because its data model differs from the older WotLK-style `item_template` workflow.
+
+### What is next
+
+Current development is focused on bringing **Cataclysm and Mists of Pandaria** up toward the same practical experience as the first three eras. Priorities include reliable core builds on Apple Silicon, complete database setup/repair, dependable client-data extraction/preparation, realm startup and configuration, account/character administration, complete expansion-specific collections, and fixing expansion-specific compatibility issues discovered during real testing.
+
+After Cata and MoP reach that level, development will continue improving these same five expansions rather than adding newer WoW eras.
 
 ## Playing on Apple Silicon Macs
 
 WoWCC manages the **server** side and links to a legally obtained compatible WoW client; Blizzard game clients are not included in this repository.
 
-Apple Silicon users can use **WoWSilicon** to run the original older Windows WoW clients on modern macOS. WoWSilicon currently provides profiles for Vanilla 1.12.1, TBC 2.4.3, and WotLK 3.3.5a, matching WoWCC's three primary eras. See https://wowsilicon.github.io/ for the launcher and requirements.
+For older clients, Apple Silicon users may use compatible third-party launchers/wrappers where appropriate. Client compatibility varies by expansion and is separate from WoWCC's server-side support.
 
 ## What WoWCC can do
 
 ### One-app server control
-- Install and manage isolated server profiles for each expansion.
+- Install and manage isolated server profiles for each supported expansion.
 - Start and stop the managed MySQL database, authentication/realm service, and world server independently.
 - Start the complete selected realm from the Dashboard.
 - Display live service state, ports, database readiness, and server health.
@@ -41,7 +63,7 @@ Apple Silicon users can use **WoWSilicon** to run the original older Windows WoW
 - Install or repair runtime dependencies.
 - Install/rebuild the selected emulator core.
 - Link an external compatible WoW client.
-- Prepare DBC/maps/vmaps/mmaps and other required server data.
+- Prepare DBC/DB2/maps/vmaps/mmaps and other required server data as appropriate to the expansion.
 - Setup or repair realm databases and configuration.
 - Run health checks before starting the realm.
 
@@ -59,41 +81,27 @@ Apple Silicon users can use **WoWSilicon** to run the original older Windows WoW
 - Launch the linked client for character creation/play workflows.
 
 ### Items, gear, and collections
-- Collection Browser reads directly from the selected expansion world database for Vanilla, TBC, WotLK, Cataclysm, and Mists of Pandaria.
-- All Items exposes every `item_template` row through complete paging with total counts; collection switching loads automatically.
+- Collection Browser targets all five supported expansions: Vanilla, TBC, WotLK, Cataclysm, and Mists of Pandaria.
+- All Items exposes the expansion's database-backed item catalog through complete paging with total counts.
 - Collection types include raid sets, weapons, armor, legendaries, BiS/endgame, bags, mounts, and the complete item catalog.
-- Legendaries are database-backed per expansion rather than relying on the old short built-in list.
 - Search the actual world database item catalog by name or item ID.
 - Browse item icons and tooltips.
-- Give individual items to a selected character.
+- Give individual items to a selected character where the core adapter supports it.
 - Reconstruct expansion-specific gear sets from server data.
 - Browse PvE/Tier, PvP, and high-end available sets.
-- Give complete sets from the GUI.
-- Browse curated collections such as notable weapons, armor, legendaries, and mounts.
 
-### Mount management
-- Search/load mount-learning items from the selected expansion database.
-- Give/learn mounts for a selected character through the Admin Center adapters.
-- TBC development includes optional custom gameplay patches for mount/flying behavior.
-
-### TBC PlayerBots
-- Integrates the CMaNGOS PlayerBots module into the TBC build.
-- Populate/repair the PlayerBots world from the GUI.
-- Configure bot population and startup behavior.
-- Show live bot/character information.
-- Current development includes faster bot creation/login tuning and native crash diagnostics.
-- PlayerBots support is experimental and remains an active stability workstream.
-
-### TBC gameplay customization
-WoWCC includes optional source-level TBC patches used by this project, including work around custom Warrior dual-two-handed weapon support and mount/flying restrictions. These patches are applied during the managed TBC rebuild workflow and remain experimental.
+### PlayerBots
+- TBC integrates CMaNGOS PlayerBots work.
+- WotLK uses the compatible AzerothCore Playerbot fork plus `mod-playerbots`.
+- WotLK bot population supports managed random-bot setup and populations up to 5,000.
+- PlayerBots logs and setup diagnostics are exposed through WoWCC Logs.
+- Bot behavior, PvP, dungeon/raid workflows and stability remain active development areas.
 
 ### Health Check Center
 Checks include Mac architecture, disk access, dependencies, core binaries/configuration, linked client and extracted data, database schemas, service state/ports, logs/backups, and Admin Center connectivity. Checks are grouped into PASS/WARNING/FAIL states, with repair actions where WoWCC can safely fix the problem automatically.
 
 ### Logs and crash diagnostics
-Logs are available directly inside the **Logs** page; users should not have to hunt through Finder or Terminal. WoWCC exposes World, Auth, MySQL, installer, core-build, CMake, crash/debugger, and automatically discovered profile logs.
-
-TBC development builds also include native crash-diagnostic work for tracking CMaNGOS/PlayerBots crashes. Debug facilities are temporary development aids and are removed or reduced when a root cause is fixed.
+Logs are available directly inside the **Logs** page; users should not have to hunt through Finder or Terminal. WoWCC exposes World, Auth, MySQL, installer, core-build, CMake, crash/debugger, PlayerBots, catalog, and automatically discovered profile logs.
 
 ### Backups, storage, and cleanup
 - Create/manage realm backups.
@@ -117,7 +125,9 @@ The canonical managed-data directory is `~/Library/Application Support/WoWServer
 
 ## Project status
 
-This repository is **work in progress**, not a finished turnkey distribution. Features, database adapters, emulator compatibility, PlayerBots behavior, and source patches are still being tested and refined. WotLK/AzerothCore is currently the most mature path; TBC/CMaNGOS + PlayerBots is under active development; Vanilla support is also being developed and validated.
+This repository is **work in progress**, not a finished turnkey distribution. **Vanilla, TBC, and WotLK form the first completed development group; Cataclysm and MoP are the current expansion-development focus.** WotLK/AzerothCore + PlayerBots is presently the most mature path.
+
+The roadmap ends with these five expansions. Newer WoW expansions are intentionally out of scope.
 
 Expect bugs and breaking changes while the project evolves.
 
@@ -125,4 +135,4 @@ Expect bugs and breaking changes while the project evolves.
 
 WoWCC does **not** contain or distribute Blizzard Entertainment game clients, copyrighted game data, or proprietary assets. Users must provide their own legally obtained compatible client/data and are responsible for complying with applicable licenses and laws.
 
-World of Warcraft and Blizzard Entertainment are trademarks of Blizzard Entertainment, Inc. This project is independent and is not affiliated with, endorsed by, or sponsored by Blizzard Entertainment. WoWCC also is not affiliated with WoWSilicon, CMaNGOS, AzerothCore, or their maintainers.
+World of Warcraft and Blizzard Entertainment are trademarks of Blizzard Entertainment, Inc. This project is independent and is not affiliated with, endorsed by, or sponsored by Blizzard Entertainment. WoWCC also is not affiliated with CMaNGOS, AzerothCore, Project SkyFire, or their maintainers.
