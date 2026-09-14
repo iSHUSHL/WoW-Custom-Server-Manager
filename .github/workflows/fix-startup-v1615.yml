@@ -1,0 +1,126 @@
+name: Startup Repair v1.6.15
+
+on:
+  push:
+    paths:
+      - '.github/workflows/fix-startup-v1615.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  repair-build-smoke-test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply startup compatibility repair
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          models = Path('Sources/WoWServerControlCenter/Models.swift')
+          s = models.read_text()
+          old = 'enum ExpansionID: String, CaseIterable, Codable, Identifiable {\n    case vanilla, tbc, wotlk, cataclysm, mop\n    var id: String { rawValue }'
+          new = '''enum ExpansionID: String, CaseIterable, Codable, Identifiable {
+              // Keep old raw values decodable only so stale preferences from earlier
+              // WoWCC builds can be migrated safely. Only five eras are exposed.
+              case vanilla, tbc, wotlk, cataclysm, mop
+              case wod, legion, bfa, shadowlands, dragonflight, warWithin
+
+              static let allCases: [ExpansionID] = [.vanilla, .tbc, .wotlk, .cataclysm, .mop]
+              var id: String { rawValue }'''
+          if old not in s:
+              raise SystemExit('Expected five-case ExpansionID block not found')
+          models.write_text(s.replace(old, new, 1))
+
+          server = Path('Sources/WoWServerControlCenter/ServerModel.swift')
+          s = server.read_text()
+          old = 'if let raw = UserDefaults.standard.string(forKey: "expansion"), let e = ExpansionID(rawValue: raw) { selectedExpansion = e }'
+          new = '''if let raw = UserDefaults.standard.string(forKey: "expansion"),
+                     let e = ExpansionID(rawValue: raw),
+                     ExpansionID.allCases.contains(e) {
+                      selectedExpansion = e
+                  } else if UserDefaults.standard.string(forKey: "expansion") != nil {
+                      selectedExpansion = .wotlk
+                      UserDefaults.standard.set(ExpansionID.wotlk.rawValue, forKey: "expansion")
+                  }'''
+          if old in s:
+              s = s.replace(old, new, 1)
+          server.write_text(s)
+
+          build = Path('Build.command')
+          s = build.read_text().replace('<string>1.6.11</string>', '<string>1.6.15</string>').replace('<string>1611</string>', '<string>1615</string>')
+          build.write_text(s)
+          PY
+
+      - name: Swift release build
+        run: swift build -c release
+
+      - name: Build test app bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/WoW Server Control Center.app"
+          BIN="$(swift build -c release --show-bin-path)/WoWServerControlCenter"
+          mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/WoWCC/Scripts"
+          cp "$BIN" "$APP/Contents/MacOS/WoWServerControlCenter"
+          cp -R Scripts/. "$APP/Contents/Resources/WoWCC/Scripts/"
+          chmod +x "$APP/Contents/MacOS/WoWServerControlCenter"
+          cat > "$APP/Contents/Info.plist" <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+          <key>CFBundleExecutable</key><string>WoWServerControlCenter</string>
+          <key>CFBundleIdentifier</key><string>com.dualtonelab.wowcontrolcenter</string>
+          <key>CFBundleName</key><string>WoW Server Control Center</string>
+          <key>CFBundlePackageType</key><string>APPL</string>
+          <key>LSMinimumSystemVersion</key><string>14.0</string>
+          <key>NSPrincipalClass</key><string>NSApplication</string>
+          </dict></plist>
+          PLIST
+          plutil -lint "$APP/Contents/Info.plist"
+          codesign --force --deep --sign - "$APP"
+          echo "$APP" > "$RUNNER_TEMP/app-path.txt"
+
+      - name: Startup smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="$(cat "$RUNNER_TEMP/app-path.txt")"
+          LOG="$RUNNER_TEMP/wowcc-startup.log"
+          "$APP/Contents/MacOS/WoWServerControlCenter" >"$LOG" 2>&1 &
+          PID=$!
+          sleep 6
+          if ! kill -0 "$PID" 2>/dev/null; then
+            echo 'Application exited during startup:'
+            cat "$LOG"
+            exit 1
+          fi
+          kill "$PID" || true
+          wait "$PID" || true
+          echo 'Startup smoke test passed: process remained alive for 6 seconds.'
+
+      - name: Commit repaired source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/fix-startup-v1615.yml
+          git config user.name 'WoWCC CI'
+          git config user.email 'actions@users.noreply.github.com'
+          git add Sources/WoWServerControlCenter/Models.swift Sources/WoWServerControlCenter/ServerModel.swift Build.command .github/workflows/fix-startup-v1615.yml
+          git commit -m 'WoWCC 1.6.15: repair five-expansion startup compatibility'
+          git push
+
+      - name: Stage source package
+        shell: bash
+        run: |
+          mkdir -p artifact/WoWServerControlCenter-1.6.15
+          git archive --format=tar HEAD | tar -x -C artifact/WoWServerControlCenter-1.6.15
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WoWServerControlCenter-1.6.15-Startup-Fix-ONE-ZIP
+          path: artifact/WoWServerControlCenter-1.6.15
+          if-no-files-found: error
