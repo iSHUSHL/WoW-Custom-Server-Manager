@@ -1,7 +1,13 @@
 import Foundation
 
 enum ExpansionID: String, CaseIterable, Codable, Identifiable {
-    // Legacy values remain decodable for older preferences/profile data.\n    // Only the five supported expansions are exposed in the UI.\n    case vanilla, tbc, wotlk, cataclysm, mop\n    case wod, legion, bfa, shadowlands, dragonflight, warWithin\n\n    static let allCases: [ExpansionID] = [.vanilla, .tbc, .wotlk, .cataclysm, .mop]\n    var id: String { rawValue }
+    // Legacy values remain decodable for older preferences/profile data.
+    // Only the five supported expansions are exposed in the UI.
+    case vanilla, tbc, wotlk, cataclysm, mop
+    case wod, legion, bfa, shadowlands, dragonflight, warWithin
+
+    static let allCases: [ExpansionID] = [.vanilla, .tbc, .wotlk, .cataclysm, .mop]
+    var id: String { rawValue }
 
     var title: String {
         switch self {
@@ -9,7 +15,14 @@ enum ExpansionID: String, CaseIterable, Codable, Identifiable {
         case .tbc: return "The Burning Crusade 2.4.3"
         case .wotlk: return "Wrath of the Lich King 3.3.5a"
         case .cataclysm: return "Cataclysm 4.3.4 (15595)"
-        case .mop: return "Mists of Pandaria 5.4.8 (18414)"\n        case .wod: return "Warlords of Draenor"\n        case .legion: return "Legion"\n        case .bfa: return "Battle for Azeroth"\n        case .shadowlands: return "Shadowlands"\n        case .dragonflight: return "Dragonflight"\n        case .warWithin: return "The War Within"\n        }
+        case .mop: return "Mists of Pandaria 5.4.8 (18414)"
+        case .wod: return "Warlords of Draenor"
+        case .legion: return "Legion"
+        case .bfa: return "Battle for Azeroth"
+        case .shadowlands: return "Shadowlands"
+        case .dragonflight: return "Dragonflight"
+        case .warWithin: return "The War Within"
+        }
     }
 
     var shortTitle: String {
@@ -18,13 +31,22 @@ enum ExpansionID: String, CaseIterable, Codable, Identifiable {
         case .tbc: return "TBC"
         case .wotlk: return "WotLK"
         case .cataclysm: return "Cata"
-        case .mop: return "MoP"\n        case .wod: return "WoD"\n        case .legion: return "Legion"\n        case .bfa: return "BfA"\n        case .shadowlands: return "SL"\n        case .dragonflight: return "DF"\n        case .warWithin: return "TWW"\n        }
+        case .mop: return "MoP"
+        case .wod: return "WoD"
+        case .legion: return "Legion"
+        case .bfa: return "BfA"
+        case .shadowlands: return "SL"
+        case .dragonflight: return "DF"
+        case .warWithin: return "TWW"
+        }
     }
 
     var maturity: ProfileMaturity {
         switch self {
         case .vanilla, .tbc, .wotlk: return .supported
-        case .cataclysm, .mop: return .community\n        default: return .experimental\n        }
+        case .cataclysm, .mop: return .community
+        default: return .experimental
+        }
     }
 
     var recommendedCore: String {
@@ -33,7 +55,9 @@ enum ExpansionID: String, CaseIterable, Codable, Identifiable {
         case .tbc: return "CMaNGOS TBC"
         case .wotlk: return "AzerothCore Playerbot fork + mod-playerbots"
         case .cataclysm: return "Cataclysm Preservation TrinityCore 4.3.4"
-        case .mop: return "Project SkyFire 5.4.8"\n        default: return "Imported compatible core"\n        }
+        case .mop: return "Project SkyFire 5.4.8"
+        default: return "Imported compatible core"
+        }
     }
 
     var clientHint: String {
@@ -42,7 +66,9 @@ enum ExpansionID: String, CaseIterable, Codable, Identifiable {
         case .tbc: return "2.4.3 build 8606 client"
         case .wotlk: return "3.3.5a build 12340 client"
         case .cataclysm: return "4.3.4 build 15595 client"
-        case .mop: return "5.4.8 build 18414 client"\n        default: return "Client build matching the imported core"\n        }
+        case .mop: return "5.4.8 build 18414 client"
+        default: return "Client build matching the imported core"
+        }
     }
 
     var clientSearchQuery: String {
@@ -51,14 +77,22 @@ enum ExpansionID: String, CaseIterable, Codable, Identifiable {
         case .tbc: return "World of Warcraft 2.4.3 build 8606 client download"
         case .wotlk: return "World of Warcraft 3.3.5a build 12340 client download"
         case .cataclysm: return "World of Warcraft Cataclysm 4.3.4 build 15595 client download"
-        case .mop: return "World of Warcraft Mists of Pandaria 5.4.8 build 18414 client download"\n        case .wod: return "World of Warcraft Warlords of Draenor compatible client download"\n        case .legion: return "World of Warcraft Legion compatible client download"\n        case .bfa: return "World of Warcraft Battle for Azeroth compatible client download"\n        case .shadowlands: return "World of Warcraft Shadowlands compatible client download"\n        case .dragonflight: return "World of Warcraft Dragonflight compatible client download"\n        case .warWithin: return "World of Warcraft The War Within compatible client download"\n        }
+        case .mop: return "World of Warcraft Mists of Pandaria 5.4.8 build 18414 client download"
+        case .wod: return "World of Warcraft Warlords of Draenor compatible client download"
+        case .legion: return "World of Warcraft Legion compatible client download"
+        case .bfa: return "World of Warcraft Battle for Azeroth compatible client download"
+        case .shadowlands: return "World of Warcraft Shadowlands compatible client download"
+        case .dragonflight: return "World of Warcraft Dragonflight compatible client download"
+        case .warWithin: return "World of Warcraft The War Within compatible client download"
+        }
     }
 
     var serverFamily: ServerFamily {
         switch self {
         case .wotlk: return .azerothCore
         case .vanilla, .tbc: return .cmangos
-        default: return .custom\n        }
+        default: return .custom
+        }
     }
 }
 
