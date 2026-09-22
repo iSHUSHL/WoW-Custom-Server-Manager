@@ -1317,7 +1317,7 @@ final class ServerModel: ObservableObject {
 
                 statusMessage = "1/3 Starting managed MySQL 8.4…"
                 try await startMySQL()
-                try configureDatabaseAccess()
+                try await configureDatabaseAccessAsync()
                 guard portOpen(Int32(mysqlPort)) else { throw err("MySQL started but port \(mysqlPort) is not listening.") }
 
                 realmDatabaseReady = probeRealmDatabaseReady()
@@ -1504,7 +1504,7 @@ final class ServerModel: ObservableObject {
             do {
                 statusMessage = "Starting managed MySQL 8.4…"
                 try await startMySQL()
-                try configureDatabaseAccess()
+                try await configureDatabaseAccessAsync()
                 mysqlRunning = true
                 realmDatabaseReady = probeRealmDatabaseReady()
                 statusMessage = "MySQL running"
@@ -1537,7 +1537,12 @@ final class ServerModel: ObservableObject {
         let marker = datadir.appendingPathComponent("mysql")
         if !FileManager.default.fileExists(atPath: marker.path) {
             statusMessage = "Initializing local database…"
-            try runSync(mysqld, ["--no-defaults", "--initialize-insecure", "--datadir=\(datadir.path)"])
+            // mysqld --initialize can take several seconds on a fresh profile.
+            // Never wait for it on MainActor or macOS will show a beachball.
+            try await runProcessAsync(
+                mysqld,
+                ["--no-defaults", "--initialize-insecure", "--datadir=\(datadir.path)"]
+            )
         }
         let socket = profileDBRoot.appendingPathComponent("mysql.sock").path
         try mysql.start(executable: URL(fileURLWithPath: mysqld), arguments: ["--no-defaults", "--datadir=\(datadir.path)", "--port=\(mysqlPort)", "--bind-address=127.0.0.1", "--socket=\(socket)", "--mysqlx=0"])
@@ -1557,6 +1562,48 @@ final class ServerModel: ObservableObject {
         p.arguments = ["--protocol=TCP", "-h", "127.0.0.1", "-P", "\(mysqlPort)", "-u", "root", "-e", "CREATE USER IF NOT EXISTS 'wowcc'@'127.0.0.1' IDENTIFIED BY 'wowcc'; CREATE USER IF NOT EXISTS 'wowcc'@'localhost' IDENTIFIED BY 'wowcc'; GRANT ALL PRIVILEGES ON *.* TO 'wowcc'@'127.0.0.1'; GRANT ALL PRIVILEGES ON *.* TO 'wowcc'@'localhost'; FLUSH PRIVILEGES;"]
         let errPipe = Pipe(); p.standardError = errPipe; try p.run(); p.waitUntilExit()
         if p.terminationStatus != 0 { throw err(String(data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "Unable to configure DB user") }
+    }
+
+    // Async Process bridge for Start-button work. Process.run() itself is cheap;
+    // the old waitUntilExit() calls were the problem because ServerModel is
+    // @MainActor. A termination handler lets AppKit keep servicing the window
+    // while MySQL performs initialization/configuration.
+    private func runProcessAsync(_ executable: String, _ arguments: [String]) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            let process = Process()
+            let errorPipe = Pipe()
+            process.executableURL = URL(fileURLWithPath: executable)
+            process.arguments = arguments
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = errorPipe
+            process.terminationHandler = { process in
+                let data = errorPipe.fileHandleForReading.readDataToEndOfFile()
+                if process.terminationStatus == 0 {
+                    continuation.resume()
+                } else {
+                    let message = String(data: data, encoding: .utf8)?
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    continuation.resume(throwing: NSError(
+                        domain: "WoWCC",
+                        code: Int(process.terminationStatus),
+                        userInfo: [NSLocalizedDescriptionKey: (message?.isEmpty == false ? message! : "Command failed (exit \(process.terminationStatus))")]
+                    ))
+                }
+            }
+            do {
+                try process.run()
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+    }
+
+    private func configureDatabaseAccessAsync() async throws {
+        guard let mysqlExe = locateMySQL("mysql") else { throw err("mysql client not found") }
+        try await runProcessAsync(mysqlExe, [
+            "--protocol=TCP", "-h", "127.0.0.1", "-P", "\(mysqlPort)", "-u", "root", "-e",
+            "CREATE USER IF NOT EXISTS 'wowcc'@'127.0.0.1' IDENTIFIED BY 'wowcc'; CREATE USER IF NOT EXISTS 'wowcc'@'localhost' IDENTIFIED BY 'wowcc'; GRANT ALL PRIVILEGES ON *.* TO 'wowcc'@'127.0.0.1'; GRANT ALL PRIVILEGES ON *.* TO 'wowcc'@'localhost'; FLUSH PRIVILEGES;"
+        ])
     }
 
     func startAuth() throws {
