@@ -47,6 +47,11 @@ final class ServerModel: ObservableObject {
     @Published var statusMessage = "Ready"
     @Published var operationActive = false
     @Published var operationName = "Idle"
+
+    // Set Level command queue. These properties are intentionally retained even
+    // though AI Game Master/Character Maxer were removed in v1.6.24.
+    private var adminCommandQueue: [(command: String, success: String)] = []
+    private var adminCommandWorkerRunning = false
     struct LogChoice: Identifiable {
         let id: String
         let title: String
@@ -92,6 +97,11 @@ final class ServerModel: ObservableObject {
     @Published var minimumItemLevel = ""
     @Published var selectedCharacter: CharacterSummary?
     @Published var characters: [CharacterSummary] = []
+    @Published var gmConsoleStatus = "Select a character, paste GM commands, then click Execute All."
+    @Published var quickGiveStatus = "Select a toon, then enter an item ID or spell ID."
+    @Published var gmIslandStatus = "Install a complete WotLK PvE + PvP GM vendor hub."
+    @Published var gmGearTerminalBuildStatus = "Build the Gear Menu module before using the central menu."
+    @Published var dungeonLeaderStatus = "Dungeon Bot Leader not installed yet."
     @Published var accounts: [AccountSummary] = []
 
     // Character creator. Character records are intentionally created by the
@@ -198,23 +208,41 @@ final class ServerModel: ObservableObject {
         try? fm.createDirectory(at: dataRoot.appendingPathComponent("runtime/backups"), withIntermediateDirectories: true)
         try? fm.createDirectory(at: itemIconCacheRoot, withIntermediateDirectories: true)
         try? ensureCompatibilityAlias()
-        if let raw = UserDefaults.standard.string(forKey: "expansion"), let e = ExpansionID(rawValue: raw) { selectedExpansion = e }
+        if let raw = UserDefaults.standard.string(forKey: "expansion"),
+           let e = ExpansionID(rawValue: raw),
+           ExpansionID.allCases.contains(e) {
+            selectedExpansion = e
+        } else if UserDefaults.standard.string(forKey: "expansion") != nil {
+            // Migrate preferences from removed post-MoP profiles without allowing
+            // an unsupported Picker selection to poison app startup.
+            selectedExpansion = .wotlk
+            UserDefaults.standard.set(ExpansionID.wotlk.rawValue, forKey: "expansion")
+        }
         loadProfileSettings()
         lanAccessEnabled = UserDefaults.standard.bool(forKey: profileKey("lanAccess"))
         detectedLANIP = UserDefaults.standard.string(forKey: profileKey("lastLANIP")) ?? "Not detected"
         updateNetworkStatusFromCachedAddress()
         rebuildProcesses()
+        // Startup must stay lightweight. Port/process/database probes are deferred
+        // until SwiftUI has presented the first window, preventing a launch-time
+        // Dock bounce/hang when old profiles or external tools respond slowly.
+    }
 
+    func startRuntimeMonitoring() {
+        guard refreshTimer == nil else { return }
+        // Keep automatic monitoring deliberately lightweight. The old loop ran
+        // /bin/ps + waitUntilExit and watchdog port probes on MainActor every 5s,
+        // which could beachball the whole SwiftUI app. refresh() already performs
+        // service/DB probes on a utility queue, so it is the only automatic task.
         refresh()
-        refreshExpansionServiceStates()
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                guard let self else { return }
-                self.refresh()
-                self.refreshExpansionServiceStates()
-                await self.keepWorldAliveIfRequested()
+                self?.refresh()
             }
         }
+        // Expansion-wide process state is still available, but its scan now runs
+        // asynchronously and never blocks the UI.
+        refreshExpansionServiceStates()
     }
 
     var mysqlRuntimeInstalled: Bool { locateMySQL("mysqld") != nil && locateMySQL("mysql") != nil }
@@ -1155,41 +1183,40 @@ final class ServerModel: ObservableObject {
     }
 
     func refreshExpansionServiceStates() {
-        let process = Process()
-        let pipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/bin/ps")
-        process.arguments = ["-axo", "pid=,command="]
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
-            return
-        }
-        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        var next: [String: ExpansionServiceState] = [:]
-        for expansion in ExpansionID.allCases {
-            let profileToken = "/runtime/profiles/\(expansion.rawValue)/bin/"
-            let dbToken = "/runtime/mysql/\(expansion.rawValue)/data"
-            var state = ExpansionServiceState()
-            for rawLine in output.split(separator: "\n") {
-                let command = String(rawLine)
-                if command.contains(dbToken) && command.contains("mysqld") {
-                    state.database = true
-                }
-                if command.contains(profileToken) {
-                    if command.contains("/bin/realmd") || command.contains("/bin/authserver") {
-                        state.auth = true
-                    }
-                    if command.contains("/bin/mangosd") || command.contains("/bin/worldserver") {
-                        state.world = true
-                    }
-                }
+        let expansions = ExpansionID.allCases
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let process = Process()
+            let pipe = Pipe()
+            process.executableURL = URL(fileURLWithPath: "/bin/ps")
+            process.arguments = ["-axo", "pid=,command="]
+            process.standardOutput = pipe
+            process.standardError = FileHandle.nullDevice
+            do {
+                try process.run()
+                process.waitUntilExit()
+            } catch {
+                return
             }
-            next[expansion.rawValue] = state
+            let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            var next: [String: ExpansionServiceState] = [:]
+            for expansion in expansions {
+                let profileToken = "/runtime/profiles/\(expansion.rawValue)/bin/"
+                let dbToken = "/runtime/mysql/\(expansion.rawValue)/data"
+                var state = ExpansionServiceState()
+                for rawLine in output.split(separator: "\n") {
+                    let command = String(rawLine)
+                    if command.contains(dbToken) && command.contains("mysqld") { state.database = true }
+                    if command.contains(profileToken) {
+                        if command.contains("/bin/realmd") || command.contains("/bin/authserver") { state.auth = true }
+                        if command.contains("/bin/mangosd") || command.contains("/bin/worldserver") { state.world = true }
+                    }
+                }
+                next[expansion.rawValue] = state
+            }
+            DispatchQueue.main.async {
+                self?.expansionServiceStates = next
+            }
         }
-        expansionServiceStates = next
     }
 
     func startExpansion(_ expansion: ExpansionID) {
@@ -1569,6 +1596,15 @@ final class ServerModel: ObservableObject {
                 "AC_PLAYERBOTS_DATABASE_SYNCHTHREADS": "1",
                 "AC_DATA_DIR": profileRoot.appendingPathComponent("data").path
             ]
+        }
+
+        appendCatalogDiagnostic("[server-launch:\(selectedExpansion.rawValue)] \(name) runtime binary: \(realBin.path)")
+        if selectedExpansion == .wotlk {
+            appendCatalogDiagnostic("[server-launch:wotlk] compatibility binary: \(aliasBin.path)")
+            if name == "worldserver" {
+                let dungeonConfig = profileRoot.appendingPathComponent("etc/modules/mod_dungeon_clear.conf")
+                appendCatalogDiagnostic("[server-launch:wotlk] Dungeon Clear config: \(FileManager.default.fileExists(atPath: dungeonConfig.path) ? dungeonConfig.path : "NOT FOUND")")
+            }
         }
 
         try process.start(
@@ -1982,15 +2018,18 @@ final class ServerModel: ObservableObject {
 
         switch selectedExpansion.serverFamily {
         case .azerothCore:
-            let delta = level - c.level
-            if delta == 0 {
-                statusMessage = "\(c.name) is already level \(level)"
+            let target = min(max(1, level), 80)
+            if target == c.level {
+                statusMessage = "\(c.name) is already level \(target)"
                 return
             }
+            // AzerothCore supports this from the world console and for offline
+            // characters; unlike levelup, this is an absolute target level.
             sendAdminCommand(
-                "levelup \(c.name) \(delta)",
-                success: "Set-level command sent to \(c.name): \(level)"
+                "character level \(c.name) \(target)",
+                success: "\(c.name) level set to \(target)"
             )
+
 
         case .cmangos:
             let maxLevel = selectedExpansion == .tbc ? 70 : 60
@@ -2081,25 +2120,32 @@ final class ServerModel: ObservableObject {
         play()
     }
 
+    func refreshToons() {
+        loadCharacters()
+        statusMessage = "Characters refreshed"
+    }
+
     func loadCharacters() {
         do {
             let client = try dbClient()
             let db = characterDatabaseName
             let authDB = authDatabaseName
-            let sql: String
-            if selectedExpansion.serverFamily == .cmangos {
-                // Show real/player-created characters in the admin page; random bot
-                // accounts are reported separately on PlayerBots.
-                sql = """
-                SELECT c.guid,c.name,c.level,c.race,c.class,c.online
-                FROM characters c
-                LEFT JOIN \(authDB).account a ON a.id=c.account
-                WHERE a.username IS NULL OR UPPER(a.username) NOT LIKE 'RNDBOT%'
-                ORDER BY c.name;
-                """
-            } else {
-                sql = "SELECT guid,name,level,race,class,online FROM characters ORDER BY name;"
-            }
+            // Characters page is for human/player-owned characters only. PlayerBots
+            // stay exclusively in the PlayerBots section. Join the selected era's
+            // auth database for every supported core and exclude all known bot
+            // account prefixes. AzerothCore PlayerBots uses RNDBOT by default;
+            // CMaNGOS deployments commonly use RNDBOT/BOT-style accounts.
+            let sql = """
+            SELECT c.guid,c.name,c.level,c.race,c.class,c.online
+            FROM characters c
+            LEFT JOIN \(authDB).account a ON a.id=c.account
+            WHERE a.username IS NULL OR (
+                UPPER(a.username) NOT LIKE 'RNDBOT%'
+                AND UPPER(a.username) NOT LIKE 'PLAYERBOT%'
+                AND UPPER(a.username) NOT LIKE 'BOT%'
+            )
+            ORDER BY c.name;
+            """
             let text = try client.query(database: db, sql: sql)
             characters = text.split(separator: "\n").compactMap { line in
                 let f = line.split(separator: "\t", omittingEmptySubsequences: false); guard f.count >= 6 else { return nil }
@@ -3167,8 +3213,387 @@ final class ServerModel: ObservableObject {
         newAccountPassword = ""
     }
 
+
+
+
+    func installDungeonBotLeader() {
+        guard selectedExpansion == .wotlk else {
+            dungeonLeaderStatus = "Dungeon Bot Leader is WotLK/AzerothCore only."
+            return
+        }
+        guard let script = Bundle.main.resourceURL?.appendingPathComponent("Scripts/install-build-dungeon-clear.sh"),
+              FileManager.default.fileExists(atPath: script.path) else {
+            dungeonLeaderStatus = "Dungeon Bot Leader installer is missing from the app bundle."
+            appendCatalogDiagnostic("[dungeon-clear] ERROR: installer missing.")
+            return
+        }
+
+        dungeonLeaderStatus = "Starting Dungeon Bot Leader install…"
+        appendCatalogDiagnostic("[dungeon-clear] Starting installer…")
+
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = [script.path]
+        process.standardOutput = pipe
+        process.standardError = pipe
+
+        pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
+            let lines = text.split(whereSeparator: \.isNewline).map(String.init)
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                for raw in lines {
+                    let clean = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !clean.isEmpty else { continue }
+                    self.dungeonLeaderStatus = clean
+                    self.appendCatalogDiagnostic("[dungeon-clear] \(clean)")
+                }
+            }
+        }
+
+        process.terminationHandler = { [weak self, weak pipe] finished in
+            pipe?.fileHandleForReading.readabilityHandler = nil
+            let code = finished.terminationStatus
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                if code == 0 {
+                    self.dungeonLeaderStatus = "✓ COMPLETE — restart World Server, enter dungeon, then use .dc on"
+                    self.appendCatalogDiagnostic("[dungeon-clear] COMPLETE — module installed successfully.")
+                } else {
+                    self.dungeonLeaderStatus = "✗ FAILED (exit \(code)) — open Logs → dungeon-clear-build.log"
+                    self.appendCatalogDiagnostic("[dungeon-clear] FAILED exit=\(code).")
+                }
+            }
+        }
+
+        do {
+            try process.run()
+        } catch {
+            pipe.fileHandleForReading.readabilityHandler = nil
+            dungeonLeaderStatus = "✗ ERROR — \(error.localizedDescription)"
+            appendCatalogDiagnostic("[dungeon-clear] ERROR: \(error.localizedDescription)")
+        }
+    }
+
+    func buildGMGearTerminalModule() {
+        guard selectedExpansion == .wotlk else {
+            gmGearTerminalBuildStatus = "Gear Menu is WotLK/AzerothCore only."
+            return
+        }
+        guard let script = Bundle.main.resourceURL?.appendingPathComponent("Scripts/install-build-wowcc-gear-terminal.sh"),
+              FileManager.default.fileExists(atPath: script.path) else {
+            gmGearTerminalBuildStatus = "Gear Menu build script is missing from the app bundle."
+            appendCatalogDiagnostic("[gear-terminal] ERROR: build script missing.")
+            return
+        }
+
+        gmGearTerminalBuildStatus = "Building Gear Menu module into WotLK worldserver…"
+        appendCatalogDiagnostic("[gear-terminal] Build started. See wowcc-gear-terminal-build.log in Logs.")
+
+        Task.detached { [weak self] in
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/bin/bash")
+            p.arguments = [script.path]
+            do {
+                try p.run()
+                p.waitUntilExit()
+                let code = p.terminationStatus
+                await MainActor.run {
+                    guard let self else { return }
+                    if code == 0 {
+                        self.gmGearTerminalBuildStatus = "Module built successfully. Install/Repair GM Island, then restart World Server."
+                        self.appendCatalogDiagnostic("[gear-terminal] COMPLETE.")
+                    } else {
+                        self.gmGearTerminalBuildStatus = "Module build failed (exit \(code)). Open Logs → wowcc-gear-terminal-build.log."
+                        self.appendCatalogDiagnostic("[gear-terminal] FAILED exit=\(code).")
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    guard let self else { return }
+                    self.gmGearTerminalBuildStatus = "Could not start module build: \(error.localizedDescription)"
+                    self.appendCatalogDiagnostic("[gear-terminal] ERROR: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+
+    func installGMIslandHub() {
+        guard selectedExpansion == .wotlk else {
+            gmIslandStatus = "GM Island Gear Hub is currently built for WotLK / AzerothCore."
+            statusMessage = gmIslandStatus
+            return
+        }
+        Task {
+            do {
+                gmIslandStatus = "Starting MySQL and installing GM Island vendors…"
+                try await startMySQL()
+                try configureDatabaseAccess()
+                appendCatalogDiagnostic("[gm-island:wotlk] Installing/repairing complete PvE + PvP vendor hub.")
+                runScript("install-gm-island-hub.sh", args: [])
+                gmIslandStatus = "GM Island installer started. Watch WoWCC Logs → installer.log. Restart World Server when it completes."
+            } catch {
+                gmIslandStatus = "GM Island install failed: \(error.localizedDescription)"
+                appendCatalogDiagnostic("[gm-island:wotlk] FAILED: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func openGMIslandInstallLog() {
+        // The Logs page owns log selection/refresh state. Keep this model
+        // action side-effect free so ServerModel does not reference view-only
+        // symbols that do not exist in this scope.
+        appendCatalogDiagnostic("[gm-island:wotlk] Opened Logs after GM Island installer action.")
+    }
+
+
+    func quickGiveItem(itemIDText: String, quantityText: String) {
+        guard selectedExpansion == .wotlk else {
+            quickGiveStatus = "Quick Give is currently enabled for WotLK / AzerothCore."
+            statusMessage = quickGiveStatus
+            return
+        }
+        guard let target = selectedCharacter else {
+            quickGiveStatus = "Select a target toon first."
+            return
+        }
+        let itemText = itemIDText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let quantity = Int(quantityText.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 1
+        guard let itemID = Int(itemText), itemID > 0, quantity > 0 else {
+            quickGiveStatus = "Enter a valid positive Item ID and quantity."
+            return
+        }
+
+        let command = "additem \(itemID) \(quantity) \(target.name)"
+        appendCatalogDiagnostic("[quick-give:\(selectedExpansion.rawValue)] TARGET \(target.name) ITEM \(itemID) x\(quantity)")
+        sendAdminCommand(command, success: "Gave item \(itemID) x\(quantity) to \(target.name)")
+        quickGiveStatus = "Queued: item \(itemID) × \(quantity) → \(target.name)"
+    }
+
+    func quickTeachSpell(spellIDText: String) {
+        guard selectedExpansion == .wotlk else {
+            quickGiveStatus = "Quick Give is currently enabled for WotLK / AzerothCore."
+            statusMessage = quickGiveStatus
+            return
+        }
+        guard let target = selectedCharacter else {
+            quickGiveStatus = "Select a target toon first."
+            return
+        }
+        let spellText = spellIDText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let spellID = Int(spellText), spellID > 0 else {
+            quickGiveStatus = "Enter a valid positive Spell ID."
+            return
+        }
+
+        let command = "player learn \(target.name) \(spellID)"
+        appendCatalogDiagnostic("[quick-give:\(selectedExpansion.rawValue)] TARGET \(target.name) SPELL \(spellID)")
+        sendAdminCommand(command, success: "Taught spell \(spellID) to \(target.name)")
+        quickGiveStatus = "Queued: spell \(spellID) → \(target.name)"
+    }
+
+
+    func executeTargetedGMBlock(_ block: String) {
+        guard selectedExpansion == .wotlk else {
+            gmConsoleStatus = "World Console target-safe command conversion is currently enabled for WotLK / AzerothCore only."
+            statusMessage = gmConsoleStatus
+            return
+        }
+        guard let target = selectedCharacter else {
+            gmConsoleStatus = "Select a target character first."
+            statusMessage = gmConsoleStatus
+            return
+        }
+
+        let rawLines = block.components(separatedBy: .newlines)
+        var converted: [String] = []
+        var rejected: [String] = []
+
+        for rawLine in rawLines {
+            let trimmed = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty || trimmed.hasPrefix("#") { continue }
+
+            if let command = targetedAzerothCoreCommand(from: trimmed, playerName: target.name) {
+                converted.append(command)
+            } else {
+                rejected.append(trimmed)
+            }
+        }
+
+        guard !converted.isEmpty else {
+            let rejectedText = rejected.isEmpty ? "" : "\nRejected:\n" + rejected.map { "• \($0)" }.joined(separator: "\n")
+            gmConsoleStatus = "No supported target-safe commands found." + rejectedText
+            statusMessage = "No supported GM console commands to execute."
+            appendCatalogDiagnostic("[gm-console:\(selectedExpansion.rawValue)] Nothing queued for \(target.name).\(rejectedText)")
+            return
+        }
+
+        let targetName = target.name
+        gmConsoleStatus = "Target: \(targetName)\nQueued \(converted.count) command(s)…"
+        if !rejected.isEmpty {
+            gmConsoleStatus += "\nRejected \(rejected.count) unsupported command(s):\n" + rejected.map { "• \($0)" }.joined(separator: "\n")
+        }
+
+        appendCatalogDiagnostic("[gm-console:\(selectedExpansion.rawValue)] TARGET \(targetName) — queued \(converted.count), rejected \(rejected.count)")
+
+        for (index, command) in converted.enumerated() {
+            let humanIndex = index + 1
+            sendAdminCommand(command, success: "World Console \(humanIndex)/\(converted.count) sent to \(targetName)")
+        }
+
+        gmConsoleStatus += "\n\nConverted commands:\n" + converted.map { "→ \($0)" }.joined(separator: "\n")
+        statusMessage = "Queued \(converted.count) targeted GM command(s) for \(targetName)."
+    }
+
+    private func targetedAzerothCoreCommand(from input: String, playerName: String) -> String? {
+        var command = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        while command.hasPrefix(".") {
+            command.removeFirst()
+        }
+
+        let parts = command.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        guard !parts.isEmpty else { return nil }
+
+        let lower = parts.map { $0.lowercased() }
+
+        // Explicit named-player command documented by AzerothCore:
+        // player learn #playername #spell [all]
+        if lower[0] == "learn", parts.count >= 2 {
+            let suffix = parts.dropFirst().joined(separator: " ")
+            return "player learn \(playerName) \(suffix)"
+        }
+        if lower[0] == "unlearn", parts.count >= 2 {
+            let suffix = parts.dropFirst().joined(separator: " ")
+            return "player unlearn \(playerName) \(suffix)"
+        }
+
+        // Also accept pasted player learn/unlearn commands, but override the
+        // supplied player so the picker remains the authoritative target.
+        if parts.count >= 3, lower[0] == "player", lower[1] == "learn" {
+            let suffix = parts.dropFirst(3).joined(separator: " ")
+            let spell = parts[2]
+            return "player learn \(playerName) \(spell)" + (suffix.isEmpty ? "" : " \(suffix)")
+        }
+        if parts.count >= 3, lower[0] == "player", lower[1] == "unlearn" {
+            let suffix = parts.dropFirst(3).joined(separator: " ")
+            let spell = parts[2]
+            return "player unlearn \(playerName) \(spell)" + (suffix.isEmpty ? "" : " \(suffix)")
+        }
+
+        // AzerothCore additem accepts an explicit player name as the final
+        // argument when invoked from the server console.
+        if lower[0] == "additem", parts.count >= 2 {
+            let item = parts[1]
+            let count = parts.count >= 3 ? parts[2] : "1"
+            return "additem \(item) \(count) \(playerName)"
+        }
+
+        // Level commands have explicit player-name forms in AzerothCore.
+        if lower[0] == "level", parts.count == 2 {
+            return "character level \(playerName) \(parts[1])"
+        }
+        if parts.count >= 2, lower[0] == "character", lower[1] == "level" {
+            guard let value = parts.last else { return nil }
+            return "character level \(playerName) \(value)"
+        }
+        if lower[0] == "levelup" {
+            let amount = parts.count >= 2 ? parts[1] : "1"
+            return "levelup \(playerName) \(amount)"
+        }
+
+        // Deliberately reject commands such as modify money/maxskill/learn all
+        // because those use the in-game selected unit and are not safely
+        // targetable from a headless server console without additional logic.
+        return nil
+    }
+
+
     func sendAdminCommand(_ command: String, success: String) {
-        do { try world.send(command); statusMessage = success } catch { statusMessage = "Admin command unavailable: \(error.localizedDescription)" }
+        adminCommandQueue.append((command,success))
+        appendCatalogDiagnostic("[admin-command:\(selectedExpansion.rawValue)] QUEUED: \(command)")
+        guard !adminCommandWorkerRunning else { return }
+        adminCommandWorkerRunning=true
+        Task { await drainAdminCommandQueue() }
+    }
+
+    private func drainAdminCommandQueue() async {
+        defer { adminCommandWorkerRunning=false }
+        while !adminCommandQueue.isEmpty {
+            let next=adminCommandQueue.removeFirst()
+            do {
+                try await ensureAdminConsoleReady()
+                try world.send(next.command)
+                statusMessage=next.success
+                appendCatalogDiagnostic("[admin-command:\(selectedExpansion.rawValue)] SENT: \(next.command)")
+                try? await Task.sleep(nanoseconds:350_000_000)
+                loadCharacters()
+                loadInventory()
+            } catch {
+                let message="Admin command failed: \(error.localizedDescription)"
+                statusMessage=message
+                appendCatalogDiagnostic("[admin-command:\(selectedExpansion.rawValue)] FAILED: \(next.command) — \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func ensureAdminConsoleReady() async throws {
+        if world?.isRunning == true { return }
+
+        guard portOpen(Int32(mysqlPort)) else { throw err("MySQL is not running.") }
+        guard portOpen(authPort) else { throw err("Auth/Realm server is not running.") }
+
+        // A realm can survive a WoWCC relaunch. In that state the TCP port is
+        // online, but the old process's stdin cannot be re-attached. Recover
+        // only the selected profile's WORLD process, leaving DB/Auth alone.
+        if portOpen(worldPort) {
+            statusMessage="Reconnecting WoWCC admin console to \(selectedExpansion.shortTitle) World Server…"
+            appendCatalogDiagnostic("[admin-command:\(selectedExpansion.rawValue)] World is online but not owned by this WoWCC process; restarting world only to recover stdin console.")
+            try hardStopManagedWorldForProfile(selectedExpansion)
+            for _ in 0..<30 {
+                if !portOpen(worldPort) { break }
+                try? await Task.sleep(nanoseconds:100_000_000)
+            }
+        }
+
+        try await ensureWotLKPlayerBotsDatabaseReady()
+        try ensurePlayerBotRuntimeConfig()
+        try startWorld()
+        try await waitForWorldReadyPlayerBotsAware()
+        worldRunning=true
+        desiredWorldRunning=true
+        appendCatalogDiagnostic("[admin-command:\(selectedExpansion.rawValue)] Admin console attached to newly started world process.")
+    }
+
+    private func hardStopManagedWorldForProfile(_ expansion: ExpansionID) throws {
+        let process=Process()
+        let pipe=Pipe()
+        process.executableURL=URL(fileURLWithPath:"/bin/ps")
+        process.arguments=["-axo","pid=,command="]
+        process.standardOutput=pipe
+        process.standardError=FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        let output=String(data:pipe.fileHandleForReading.readDataToEndOfFile(),encoding:.utf8) ?? ""
+        let profileToken="/runtime/profiles/\(expansion.rawValue)/bin/"
+        var pids:[Int32]=[]
+        for raw in output.split(separator:"\n") {
+            let line=String(raw).trimmingCharacters(in:.whitespacesAndNewlines)
+            let parts=line.split(maxSplits:1,whereSeparator:{$0.isWhitespace})
+            guard parts.count==2, let pid=Int32(parts[0]) else { continue }
+            let command=String(parts[1])
+            guard command.contains(profileToken) else { continue }
+            guard command.contains("/bin/worldserver") || command.contains("/bin/mangosd") else { continue }
+            pids.append(pid)
+        }
+        for pid in pids { kill(pid,SIGTERM) }
+        let deadline=Date().addingTimeInterval(2.0)
+        while Date() < deadline && portOpen(worldPort) { Thread.sleep(forTimeInterval:0.1) }
+        if portOpen(worldPort) {
+            for pid in pids { kill(pid,SIGKILL) }
+        }
+        worldRunning=false
     }
 
     var healthPassCount: Int { healthChecks.filter { $0.state == .pass }.count }
