@@ -77,11 +77,10 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleName</key><string>WoW Server Control Center</string>
   <key>CFBundleDisplayName</key><string>WoW Server Control Center</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>1.6.11</string>
-  <key>CFBundleVersion</key><string>1611</string>
+  <key>CFBundleShortVersionString</key><string>1.6.46</string>
+  <key>CFBundleVersion</key><string>1646</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>NSHighResolutionCapable</key><true/>
-  <key>NSPrincipalClass</key><string>NSApplication</string>
   <key>CFBundleIconFile</key>
   <string>AppIcon.icns</string>
 </dict>
@@ -111,15 +110,30 @@ echo "✓ Icon embedded: $APP_RESOURCES/AppIcon.icns"
 chmod +x "$APP/Contents/MacOS/$EXECUTABLE"
 find "$APP/Contents/Resources/WoWCC/Scripts" -type f -name '*.sh' -exec chmod +x {} \;
 
+# Files extracted from downloaded ZIP archives can retain Gatekeeper quarantine.
+# The app is built locally from source, so remove inherited quarantine before signing.
+/usr/bin/xattr -dr com.apple.quarantine "$APP" 2>/dev/null || true
+
 if command -v codesign >/dev/null 2>&1; then
-  codesign --force --deep --sign - "$APP" >/dev/null 2>&1 || true
+  mkdir -p "$APP/Contents/Resources/Scripts"
+cp -R "$ROOT/Scripts/." "$APP/Contents/Resources/Scripts/"
+mkdir -p "$APP/Contents/Resources/Resources"
+cp -R "$ROOT/Resources/mod-wowcc-gear-terminal" "$APP/Contents/Resources/Resources/"
+
+codesign --force --deep --sign - "$APP" || fail "Ad-hoc code signing failed."
+  codesign --verify --deep --strict "$APP" || fail "Built app failed code-sign verification."
 fi
+
+/usr/bin/xattr -dr com.apple.quarantine "$APP" 2>/dev/null || true
 
 # Final icon sanity check.
 ICON_PLIST_VALUE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$APP/Contents/Info.plist" 2>/dev/null || true)"
 [[ "$ICON_PLIST_VALUE" == "AppIcon.icns" ]] || fail "Info.plist does not reference AppIcon.icns."
 [[ -s "$APP/Contents/Resources/AppIcon.icns" ]] || fail "Final app bundle is missing AppIcon.icns."
 echo "✓ Finder/Dock icon verification passed."
+[[ -x "$APP/Contents/MacOS/$EXECUTABLE" ]] || fail "Final app executable is missing or not executable."
+/usr/bin/file "$APP/Contents/MacOS/$EXECUTABLE" | grep -q 'Mach-O' || fail "Final app executable is not a Mach-O macOS binary."
+echo "✓ App executable and signature verification passed."
 
 # Refresh LaunchServices/Finder icon cache for the newly built bundle.
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
