@@ -41,7 +41,7 @@ jobs:
           source = Path('Sources/WoWServerControlCenter/ContentView.swift').read_text()
           required = [
               'Dashboard','Setup Guide','Health Checks','Expansions','Characters',
-              'Gear & Items','Collection Browser','PlayerBots','Accounts',
+              'Quick Give','GM Island Gear Hub','World Console','PlayerBots','Accounts',
               'Database','Logs','Backups','Storage & Cleanup','Settings'
           ]
           missing = [name for name in required if f'"{name}"' not in source]
