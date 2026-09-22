@@ -3339,30 +3339,15 @@ final class ServerModel: ObservableObject {
         gmGearTerminalBuildStatus = "Building Gear Menu module into WotLK worldserver…"
         appendCatalogDiagnostic("[gear-terminal] Build started. See wowcc-gear-terminal-build.log in Logs.")
 
-        Task.detached { [weak self] in
-            let p = Process()
-            p.executableURL = URL(fileURLWithPath: "/bin/bash")
-            p.arguments = [script.path]
+        let scriptPath = script.path
+        Task { @MainActor in
             do {
-                try p.run()
-                p.waitUntilExit()
-                let code = p.terminationStatus
-                await MainActor.run {
-                    guard let self else { return }
-                    if code == 0 {
-                        self.gmGearTerminalBuildStatus = "Module built successfully. Install/Repair GM Island, then restart World Server."
-                        self.appendCatalogDiagnostic("[gear-terminal] COMPLETE.")
-                    } else {
-                        self.gmGearTerminalBuildStatus = "Module build failed (exit \(code)). Open Logs → wowcc-gear-terminal-build.log."
-                        self.appendCatalogDiagnostic("[gear-terminal] FAILED exit=\(code).")
-                    }
-                }
+                try await runProcessAsync("/bin/bash", [scriptPath])
+                gmGearTerminalBuildStatus = "Module built successfully. Install/Repair GM Island, then restart World Server."
+                appendCatalogDiagnostic("[gear-terminal] COMPLETE.")
             } catch {
-                await MainActor.run {
-                    guard let self else { return }
-                    self.gmGearTerminalBuildStatus = "Could not start module build: \(error.localizedDescription)"
-                    self.appendCatalogDiagnostic("[gear-terminal] ERROR: \(error.localizedDescription)")
-                }
+                gmGearTerminalBuildStatus = "Module build failed: \(error.localizedDescription). Open Logs → wowcc-gear-terminal-build.log."
+                appendCatalogDiagnostic("[gear-terminal] ERROR: \(error.localizedDescription)")
             }
         }
     }
