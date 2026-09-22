@@ -53,6 +53,10 @@ private final class ContentViewUIState: ObservableObject {
     @Published var customItemCount = "1"
     @Published var customSpellID = "72286"
     @Published var levelTarget = "80"
+    @Published var gmConsoleInput = ""
+    @Published var quickGiveItemID = ""
+    @Published var quickGiveQuantity = "1"
+    @Published var quickLearnSpellID = ""
     @Published var pendingCleanup: CleanupAction?
 }
 
@@ -60,7 +64,7 @@ struct ContentView: View {
     @EnvironmentObject var model: ServerModel
     @StateObject private var ui = ContentViewUIState()
 
-    private let sections = ["Dashboard","Setup Guide","Health Checks","Expansions","Characters","Gear Sets","Collection Browser","Mounts","PlayerBots","Accounts","Database","Logs","Backups","Storage & Cleanup","Settings"]
+    private let sections = ["Dashboard","Setup Guide","Health Checks","Expansions","Characters","Quick Give","GM Island Gear Hub","World Console","PlayerBots","Accounts","Database","Logs","Backups","Storage & Cleanup","Settings"]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -103,9 +107,9 @@ struct ContentView: View {
                     case "Health Checks": healthChecks
                     case "Expansions": expansions
                     case "Characters": characters
-                    case "Gear Sets": gearSets
-                    case "Collection Browser": catalog(mountOnly:false)
-                    case "Mounts": catalog(mountOnly:true)
+                    case "Quick Give": quickGive
+                    case "GM Island Gear Hub": gmIslandGearHub
+                    case "World Console": worldConsole
                     case "PlayerBots": playerBots
                     case "Accounts": accounts
                     case "Database": database
@@ -124,6 +128,7 @@ struct ContentView: View {
             bottomStatusBar
         }
         .frame(minWidth: 960, minHeight: 600)
+        .onAppear { model.startRuntimeMonitoring() }
         .alert("Confirm Cleanup", isPresented: Binding(get: { ui.pendingCleanup != nil }, set: { if !$0 { ui.pendingCleanup = nil } }), presenting: ui.pendingCleanup) { action in
             Button("Cancel", role: .cancel) { ui.pendingCleanup = nil }
             Button(action.buttonTitle, role: .destructive) { performCleanup(action); ui.pendingCleanup = nil }
@@ -213,6 +218,8 @@ struct ContentView: View {
             Picker("Expansion",selection:$model.selectedExpansion) { ForEach(ExpansionID.allCases) { Text($0.title).tag($0) } }.frame(width:310)
             maturityBadge(model.selectedExpansion.maturity)
             Spacer()
+            Button { model.refresh(); model.refreshExpansionServiceStates() } label:{ Label("Refresh",systemImage:"arrow.clockwise") }
+                .buttonStyle(.bordered)
             Button { model.setupSelectedProfile() } label:{ Label("Repair Realm",systemImage:"wrench.and.screwdriver.fill") }
                 .buttonStyle(.bordered)
                 .disabled(model.operationActive || !model.mysqlRuntimeInstalled)
@@ -279,10 +286,6 @@ struct ContentView: View {
                 quick("Setup Guide","list.number") { ui.section="Setup Guide" }
                 quick("Health Checks","checkmark.shield.fill") { ui.section="Health Checks" }
                 quick("Characters","person.3.fill") { ui.section="Characters" }
-                quick("Gear Sets","square.grid.3x3.fill") { ui.section="Gear Sets" }
-                quick("Give Gear","shield.lefthalf.filled") { ui.section="Collection Browser" }
-                quick("Legendary","sparkles") { model.catalogKind = .legendary; ui.section="Collection Browser" }
-                quick("Mounts","figure.equestrian.sports") { model.catalogKind = .mount; ui.section="Mounts" }
                 quick("Accounts","person.crop.circle.badge.checkmark") { ui.section="Accounts" }
                 quick("Backup Now","externaldrive.fill") { model.runBackup() }
             }
@@ -559,6 +562,29 @@ struct ContentView: View {
             HStack {
                 VStack(alignment:.leading,spacing:5) {
                     Text("PlayerBots").font(.largeTitle.bold())
+
+                        GroupBox("Dungeon Bot Leader") {
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text("Autonomous dungeon clearing for a tank bot. The tank routes boss-to-boss, clears trash, waits for loot/rest and the other bots follow it.")
+                                    .font(.callout)
+                                    .foregroundStyle(.secondary)
+                                HStack {
+                                    Button {
+                                        model.installDungeonBotLeader()
+                                    } label: {
+                                        Label("Install / Update Dungeon Bot Leader", systemImage: "figure.walk.motion")
+                                    }
+                                    .buttonStyle(.borderedProminent)
+                                    Text(model.dungeonLeaderStatus)
+                                        .font(.callout)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Text("After restart: enter a dungeon with a tank bot and type .dc on. Controls: .dc pause, .dc skip, .dc status, .dc bosses, .dc off.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(6)
+                        }
                     Text(model.selectedExpansion == .wotlk ? "Populate WotLK with AI adventurers that quest, group, raid and join PvP." : "Populate TBC with AI adventurers that quest, group, form guilds and join PvP.").foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -637,7 +663,7 @@ struct ContentView: View {
     private var characters: some View {
         VStack(alignment:.leading,spacing:14) {
             topBar
-            HStack { Text("Characters").font(.largeTitle.bold()); Spacer(); Button("Reload") { model.loadAccounts(); model.loadCharacters() } }
+            HStack { Text("Characters").font(.largeTitle.bold()); Spacer(); Button { model.loadAccounts(); model.refreshToons() } label: { Label("Refresh Toons", systemImage:"arrow.clockwise") } }
 
             GroupBox("Character Creation") {
                 VStack(alignment:.leading, spacing:10) {
@@ -708,35 +734,325 @@ struct ContentView: View {
                         VStack(alignment:.leading) { Text(c.name).font(.headline); Text("Level \(c.level) • \(c.race) \(c.playerClass)").font(.caption).foregroundStyle(.secondary) }
                         Spacer(); Text(c.online ? "ONLINE":"OFFLINE").font(.caption2.bold())
                     }.tag(c)
-                }.frame(minWidth:520)
+                }
+                .frame(minWidth:520)
+                .task {
+                    // Keep the ONLINE/OFFLINE indicator current while the
+                    // Characters page is visible. SwiftUI cancels this task
+                    // automatically when the user leaves this page.
+                    while !Task.isCancelled {
+                        model.loadCharacters()
+                        try? await Task.sleep(nanoseconds: 3_000_000_000)
+                    }
+                }
                 GroupBox("Selected Character") {
                     VStack(alignment:.leading,spacing:12) {
                         if let c=model.selectedCharacter {
                             Text(c.name).font(.title2.bold())
                             Text("Level \(c.level) • \(c.race) \(c.playerClass)")
                             HStack { TextField("Level",text:$ui.levelTarget).frame(width:80); Button("Set Level") { if let n=Int(ui.levelTarget) { model.setLevel(n) } } }
-                            Button("Open Gear Catalog") { ui.section="Collection Browser" }
-                            Button("Open Mount Catalog") { ui.section="Mounts" }
-                            Divider()
-                            HStack { Text("Inventory").font(.headline); Spacer(); Button("Reload") { model.loadInventory() } }
-                            if model.inventory.isEmpty { Text("No inventory rows loaded").font(.caption).foregroundStyle(.secondary) }
-                            else {
-                                ScrollView {
-                                    LazyVStack(alignment:.leading,spacing:6) {
-                                        ForEach(model.inventory.prefix(80)) { it in
-                                            HStack {
-                                                VStack(alignment:.leading) { Text(it.name).font(.caption.bold()); Text("#\(it.itemEntry) • bag \(it.bag) slot \(it.slot)").font(.caption2).foregroundStyle(.secondary) }
-                                                Spacer()
-                                                Button(role:.destructive) { model.removeInventoryItem(it) } label:{ Image(systemName:"trash") }.buttonStyle(.borderless)
-                                            }.padding(.vertical,2)
-                                        }
-                                    }
-                                }.frame(maxHeight:250)
-                            }
+
                         } else { Text("Select a character") }
                     }.padding(8).frame(width:300,alignment:.leading)
                 }
             }
+        }
+    }
+
+
+
+
+
+
+    private var gmIslandGearHub: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                topBar
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("GM Island Gear Hub").font(.largeTitle.bold())
+                    Text("A complete WotLK endgame showroom for fully gearing PvE and PvP toons.")
+                        .foregroundStyle(.secondary)
+                }
+
+                GroupBox("What Gets Installed") {
+                    VStack(alignment: .leading, spacing: 9) {
+                        Text("Clean GM Specialist Hub").font(.headline)
+                        Text("Seven deliberately placed specialists replace the old vendor sprawl: PvE Endgame, PvP Endgame, Weapons, Accessories, Enhancements, Collections and Utility.")
+                        Divider()
+                        Text("Shared endgame vendors").font(.headline)
+                        Text("PvE Endgame • PvP Endgame • Weapons • Accessories • Gems/Glyphs/Enchants • Mount Collections • Bags/Consumables")
+                        Divider()
+                        Text("PvE catalog").font(.headline)
+                        Text("ICC/RS/T10 endgame armor is kept separate from weapons and accessories so each NPC has a clear purpose.")
+                        Text("PvP catalog").font(.headline)
+                        Text("Wrathful Gladiator endgame armor is separated from the shared Weapons, Accessories and Enhancements specialists.")
+                    }.padding(8)
+                }
+
+                GroupBox("Install / Repair") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Safe to run again: WoWCC replaces only its reserved vendor range (990100–990299) and rebuilds the inventories.")
+                            .foregroundStyle(.secondary)
+                        HStack {
+                            Button {
+                                model.buildGMGearTerminalModule()
+                            } label: {
+                                Label("Build / Update Gear Menu Module", systemImage: "wrench.and.screwdriver.fill")
+                            }
+                            .buttonStyle(.borderedProminent)
+
+                            Button {
+                                model.installGMIslandHub()
+                            } label: {
+                                Label("Install / Repair GM Island Hub", systemImage: "hammer.fill")
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(model.selectedExpansion != .wotlk)
+
+                            Button("Open Installer Log") {
+                                ui.section = "Logs"
+                                model.openGMIslandInstallLog()
+                            }
+                            Spacer()
+                        }
+                        Text(model.gmGearTerminalBuildStatus)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                        Text(model.gmIslandStatus)
+                            .font(.system(.caption, design: .monospaced))
+                            .textSelection(.enabled)
+                    }.padding(8)
+                }
+
+                GroupBox("Location") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("GM Island / Kalimdor — around X 16222, Y 16252, Z 14")
+                            .font(.system(.body, design: .monospaced))
+                        Text("Restart World Server after installation so AzerothCore loads the new vendor templates and spawns.")
+                            .foregroundStyle(.secondary)
+                    }.padding(8)
+                }
+
+                Text("WoWCC keeps the island intentionally small and organized. Standard WotLK vendor windows do not support a native class/spec dropdown; this layout avoids pretending they do.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+
+    private var quickGive: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            topBar
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Quick Give").font(.largeTitle.bold())
+                Text("Select a toon once, then give items or teach spells without typing character names.")
+                    .foregroundStyle(.secondary)
+            }
+
+            GroupBox("Target Toon") {
+                HStack {
+                    Picker("Character", selection: $model.selectedCharacter) {
+                        Text("Select a character").tag(Optional<CharacterSummary>.none)
+                        ForEach(model.characters) { character in
+                            Text("\(character.name) — Level \(character.level) — \(character.online ? "ONLINE" : "OFFLINE")")
+                                .tag(Optional(character))
+                        }
+                    }
+                    .frame(minWidth: 460)
+                    Button("Refresh") { model.loadCharacters() }
+                    Spacer()
+                }.padding(8)
+            }
+
+            HStack(alignment: .top, spacing: 16) {
+                GroupBox("Give Item") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Item ID").font(.caption).foregroundStyle(.secondary)
+                        TextField("Example: 49623", text: $ui.quickGiveItemID)
+                            .textFieldStyle(.roundedBorder)
+                        Text("Quantity").font(.caption).foregroundStyle(.secondary)
+                        TextField("1", text: $ui.quickGiveQuantity)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 100)
+                        Button {
+                            model.quickGiveItem(itemIDText: ui.quickGiveItemID, quantityText: ui.quickGiveQuantity)
+                        } label: {
+                            Label("Give to Selected Toon", systemImage: "gift.fill")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(model.selectedCharacter == nil || ui.quickGiveItemID.trimmingCharacters(in: .whitespaces).isEmpty)
+                        Text("Example: Shadowmourne = 49623")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }.padding(8).frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                GroupBox("Teach Spell / Mount") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Spell ID").font(.caption).foregroundStyle(.secondary)
+                        TextField("Example: 72286", text: $ui.quickLearnSpellID)
+                            .textFieldStyle(.roundedBorder)
+                        Button {
+                            model.quickTeachSpell(spellIDText: ui.quickLearnSpellID)
+                        } label: {
+                            Label("Teach to Selected Toon", systemImage: "book.fill")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(model.selectedCharacter == nil || ui.quickLearnSpellID.trimmingCharacters(in: .whitespaces).isEmpty)
+                        Text("Works for spells and mount spells. Example: Invincible = 72286")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }.padding(8).frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+
+            GroupBox("Paste a Whole Block") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("For many items/spells, use World Console. It accepts one command per line and keeps the character picker as the target.")
+                        .foregroundStyle(.secondary)
+                    HStack {
+                        Button {
+                            ui.gmConsoleInput = ".additem 49623 1\n.learn 72286\n.learn 63796"
+                            ui.section = "World Console"
+                        } label: {
+                            Label("Open Example in World Console", systemImage: "terminal.fill")
+                        }
+                        Spacer()
+                    }
+                }.padding(8)
+            }
+
+            GroupBox("Status") {
+                Text(model.quickGiveStatus)
+                    .font(.system(.caption, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(8)
+            }
+
+            Text("Every Quick Give action is also written to WoWCC Logs.")
+                .font(.caption).foregroundStyle(.secondary)
+            Spacer()
+        }
+        .onAppear { model.loadCharacters() }
+    }
+
+
+    private var worldConsole: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            topBar
+
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("World Console").font(.largeTitle.bold())
+                    Text("Paste one or many GM commands. WoWCC explicitly targets the selected character where AzerothCore provides a named-player command.")
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button {
+                    model.refreshToons()
+                } label: {
+                    Label("Refresh Toons", systemImage: "arrow.clockwise")
+                }
+            }
+
+            GroupBox("Target Character") {
+                HStack(spacing: 12) {
+                    Picker("Character", selection: $model.selectedCharacter) {
+                        Text("Select a character").tag(Optional<CharacterSummary>.none)
+                        ForEach(model.characters) { character in
+                            HStack {
+                                Circle()
+                                Text("\(character.name) — Level \(character.level) — \(character.online ? "ONLINE" : "OFFLINE")")
+                            }
+                            .tag(Optional(character))
+                        }
+                    }
+                    .frame(minWidth: 420)
+
+                    if let target = model.selectedCharacter {
+                        Text(target.online ? "ONLINE" : "OFFLINE")
+                            .font(.caption.bold())
+                            .foregroundStyle(target.online ? .green : .secondary)
+                        Text("\(target.race) \(target.playerClass)")
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+                .padding(8)
+            }
+
+            GroupBox("GM Command Block") {
+                VStack(alignment: .leading, spacing: 10) {
+                    TextEditor(text: $ui.gmConsoleInput)
+                        .font(.system(.body, design: .monospaced))
+                        .frame(minHeight: 250)
+                        .padding(6)
+                        .background(.quaternary.opacity(0.20), in: RoundedRectangle(cornerRadius: 8))
+
+                    HStack {
+                        Button {
+                            ui.gmConsoleInput = """
+.learn 33388
+.learn 33391
+.learn 34090
+.learn 34091
+.learn 54197
+.learn 72286
+.learn 63796
+.learn 40192
+.learn 71342
+.learn 42777
+.learn 42776
+.learn 46199
+.learn 46197
+"""
+                        } label: {
+                            Label("Load Riding + Rare Mount Example", systemImage: "wand.and.stars")
+                        }
+
+                        Button {
+                            ui.gmConsoleInput = ""
+                        } label: {
+                            Label("Clear", systemImage: "trash")
+                        }
+
+                        Spacer()
+
+                        Button {
+                            model.executeTargetedGMBlock(ui.gmConsoleInput)
+                        } label: {
+                            Label("Execute All", systemImage: "terminal.fill")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(model.selectedCharacter == nil || ui.gmConsoleInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+
+                    Text("Target-safe conversions in WotLK/AzerothCore: `.learn SPELL` → `player learn CHARACTER SPELL`; `.unlearn SPELL` → `player unlearn CHARACTER SPELL`; `.level N` / `.character level N` → `character level CHARACTER N`; `.levelup N` → `levelup CHARACTER N`; `.additem ITEM [COUNT]` → `additem ITEM COUNT CHARACTER`. Blank lines and # comments are ignored. Unsupported commands are rejected instead of being sent against an accidental target.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(8)
+            }
+
+            GroupBox("Execution Status") {
+                ScrollView {
+                    Text(model.gmConsoleStatus)
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(8)
+                }
+                .frame(minHeight: 120, maxHeight: 210)
+            }
+
+            Text("Every queued/sent/failed console command is also written to WoWCC Logs through the existing admin-command diagnostic log.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Spacer()
+        }
+        .onAppear {
+            model.loadCharacters()
         }
     }
 
@@ -1321,7 +1637,7 @@ struct ContentView: View {
     private func statusCard(_ title:String,_ ready:Bool,_ detail:String)->some View { VStack(alignment:.leading,spacing:7) { HStack { Circle().frame(width:9,height:9).foregroundStyle(ready ? .green:.secondary); Text(title).font(.headline) }; Text(ready ? "READY":"NOT READY").font(.title3.bold()); Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(2) }.padding(15).frame(maxWidth:.infinity,alignment:.leading).background(.thinMaterial,in:RoundedRectangle(cornerRadius:16)) }
     private func maturityBadge(_ m:ProfileMaturity)->some View { Text(m.rawValue).font(.caption2.bold()).padding(.horizontal,8).padding(.vertical,5).background(m == .supported ? Color.green.opacity(0.16):m == .community ? Color.orange.opacity(0.16):Color.secondary.opacity(0.14),in:Capsule()) }
     private func quick(_ t:String,_ symbol:String,action:@escaping()->Void)->some View { Button(action:action) { Label(t,systemImage:symbol).frame(maxWidth:.infinity,alignment:.leading).padding(9) }.buttonStyle(.bordered) }
-    private func icon(_ s:String)->String { ["Dashboard":"gauge.with.dots.needle.67percent","Setup Guide":"list.number","Health Checks":"checkmark.shield.fill","Expansions":"square.stack.fill","Characters":"person.3.fill","Gear Sets":"square.grid.3x3.fill","Collection Browser":"shield.lefthalf.filled","Mounts":"figure.equestrian.sports","PlayerBots":"person.3.sequence.fill","Accounts":"person.crop.circle.badge.checkmark","Database":"cylinder.split.1x2.fill","Logs":"text.alignleft","Backups":"externaldrive.fill","Storage & Cleanup":"trash.slash.fill"][s] ?? "gearshape.fill" }
+    private func icon(_ s:String)->String { ["Dashboard":"gauge.with.dots.needle.67percent","Setup Guide":"list.number","Health Checks":"checkmark.shield.fill","Expansions":"square.stack.fill","Characters":"person.3.fill","Quick Give":"gift.fill","GM Island Gear Hub":"building.columns.fill","World Console":"terminal.fill","PlayerBots":"person.3.sequence.fill","Accounts":"person.crop.circle.badge.checkmark","Database":"cylinder.split.1x2.fill","Logs":"text.alignleft","Backups":"externaldrive.fill","Storage & Cleanup":"trash.slash.fill"][s] ?? "gearshape.fill" }
 }
 
 
