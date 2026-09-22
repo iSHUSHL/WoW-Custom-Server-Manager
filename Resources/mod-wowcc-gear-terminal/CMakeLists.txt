@@ -1,0 +1,2 @@
+AC_ADD_SCRIPT("${CMAKE_CURRENT_LIST_DIR}/src/WoWCCGearTerminal.cpp")
+AC_ADD_SCRIPT_LOADER("WoWCCGearTerminal" "${CMAKE_CURRENT_LIST_DIR}/src/loader.h")
