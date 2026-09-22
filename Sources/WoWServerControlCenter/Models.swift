@@ -1,8 +1,9 @@
 import Foundation
 
 enum ExpansionID: String, CaseIterable, Codable, Identifiable {
-    // Legacy values remain decodable for older preferences/profile data.
-    // Only the five supported expansions are exposed in the UI.
+    // Legacy raw values remain decodable so older WoWCC preferences/profile data
+    // cannot crash startup after the project scope was reduced. Only the five
+    // supported eras are exposed through allCases and therefore through the UI.
     case vanilla, tbc, wotlk, cataclysm, mop
     case wod, legion, bfa, shadowlands, dragonflight, warWithin
 
@@ -267,6 +268,7 @@ struct GearSetSummary: Identifiable, Hashable {
     let items: [CatalogEntry]
 }
 
+
 struct InventoryEntry: Identifiable, Hashable {
     let id: Int
     let itemEntry: Int
@@ -274,6 +276,7 @@ struct InventoryEntry: Identifiable, Hashable {
     let bag: Int
     let slot: Int
 }
+
 
 enum HealthCheckState: String, Codable, Hashable {
     case pass, warning, fail
