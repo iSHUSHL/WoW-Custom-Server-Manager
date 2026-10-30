@@ -117,6 +117,7 @@ struct AccountSummary: Identifiable, Hashable {
 
 enum CatalogKind: String, CaseIterable, Identifiable {
     case raidSet = "Raid Sets"
+    case transmog = "Transmog Wardrobe"
     case weapon = "Weapons"
     case armor = "Armor"
     case legendary = "Legendaries"

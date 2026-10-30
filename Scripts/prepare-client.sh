@@ -181,6 +181,23 @@ EOF_WOWCC_TOOLS
     [[ "$COPIED_COUNT" -gt 0 ]] || { echo "ERROR: DataDir/$d is empty after copy." >&2; exit 52; }
   done
 
+  # Install the optional WotLK transmog catalogue UI. Client data preparation
+  # must NEVER fail just because GitHub/addon download is unavailable.
+  echo "[client:wotlk] Installing Transmog Collection UI addons…"
+  ADDONS_DIR="$CLIENTDIR/Interface/AddOns"
+  mkdir -p "$ADDONS_DIR"
+  UI_INSTALLER="$(cd "$(dirname "$0")" && pwd)/install-transmog-ui.sh"
+  if [[ -x "$UI_INSTALLER" ]]; then
+    if "$UI_INSTALLER" "$CLIENTDIR"; then
+      echo "[client:wotlk] Transmog Collection UI ready."
+    else
+      echo "WARNING: Transmog UI download failed. WotLK client/server data is still READY." >&2
+      echo "WARNING: Run INSTALL-TRANSMOG-UI.command later; no map extraction/rebuild is required." >&2
+    fi
+  else
+    echo "WARNING: Transmog UI installer is missing; continuing because client data extraction succeeded." >&2
+  fi
+
   echo "[client:wotlk] READY — DBC/maps/vmaps/mmaps extracted and copied to server DataDir."
   echo "WotLK server data extracted and realmlist configured."
 elif [[ "$PROFILE" == "cataclysm" ]]; then

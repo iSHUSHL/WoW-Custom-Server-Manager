@@ -1608,3 +1608,22 @@ Cataclysm is a community core and MoP is an even more toolchain-sensitive commun
 - Added separate Delete Managed MySQL Data for the selected era.
 - Repair/reinstall preserves realm data; uninstall preserves realm data but removes the shared Homebrew mysql@8.4 runtime.
 - Guided Setup now treats MySQL as its own explicit first step.
+
+## 1.6.46 — WotLK GameEvent SmartAI crash fix
+- Fixes the reproduced `EXC_BAD_ACCESS / SIGSEGV` in `GameEventMgr::RunSmartAIScripts` when a SmartAI game-event callback respawns/removes the creature currently being iterated.
+- WotLK rebuild now snapshots creature GUIDs and re-resolves each creature before invoking `sOnGameEvent`, preventing unordered-map iterator invalidation/use-after-free.
+- The patch is reapplied automatically after the Playerbot core source is refreshed, before compilation.
+- PlayerBots population settings are unchanged; a 3000-bot target remains supported by WoWCC.
+
+## 1.6.46 Transmog Collection UI v2
+- Enables mod-transmog vendor interface for ctrl-click appearance previews.
+- Prepare Client automatically installs the WotLK 3.3.5a MogIt-based Transmog Catalogue addons.
+- Adds UNLOCK-ALL-TRANSMOG.command to populate every wearable armor/weapon appearance for one selected WoW account only (bots are not bulk-unlocked).
+- After unlock/restart use `.transmog sync` to synchronize the client collection UI.
+
+### 1.6.46 Transmog default-for-all update
+- Transmog and Legion-style collection system enabled globally for WotLK.
+- During core/module installation, every existing WoW account is seeded with the complete wearable armor/weapon appearance catalogue.
+- Collections are account-wide, so all current and future characters on those accounts inherit the same catalogue automatically.
+- Legendary/artifact/heirloom/common/poor appearances and cross-class/race/skill/level restrictions are enabled for this private-realm configuration.
+- `UNLOCK-ALL-TRANSMOG.command` now refreshes the full catalogue for every existing account in one run.

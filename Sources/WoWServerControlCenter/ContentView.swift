@@ -557,40 +557,41 @@ struct ContentView: View {
     }
 
     private var playerBots: some View {
-        VStack(alignment:.leading,spacing:16) {
+        ScrollView {
+            VStack(alignment:.leading,spacing:16) {
             topBar
-            HStack {
+            HStack(alignment: .top) {
                 VStack(alignment:.leading,spacing:5) {
                     Text("PlayerBots").font(.largeTitle.bold())
-
-                        GroupBox("Dungeon Bot Leader") {
-                            VStack(alignment: .leading, spacing: 10) {
-                                Text("Autonomous dungeon clearing for a tank bot. The tank routes boss-to-boss, clears trash, waits for loot/rest and the other bots follow it.")
-                                    .font(.callout)
-                                    .foregroundStyle(.secondary)
-                                HStack {
-                                    Button {
-                                        model.installDungeonBotLeader()
-                                    } label: {
-                                        Label("Install / Update Dungeon Bot Leader", systemImage: "figure.walk.motion")
-                                    }
-                                    .buttonStyle(.borderedProminent)
-                                    Text(model.dungeonLeaderStatus)
-                                        .font(.callout)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Text("After restart: enter a dungeon with a tank bot and type .dc on. Controls: .dc pause, .dc skip, .dc status, .dc bosses, .dc off.")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            .padding(6)
-                        }
-                    Text(model.selectedExpansion == .wotlk ? "Populate WotLK with AI adventurers that quest, group, raid and join PvP." : "Populate TBC with AI adventurers that quest, group, form guilds and join PvP.").foregroundStyle(.secondary)
+                    Text(model.selectedExpansion == .wotlk ? "Populate WotLK with AI adventurers that quest, group, raid and join PvP." : "Populate TBC with AI adventurers that quest, group, form guilds and join PvP.")
+                        .foregroundStyle(.secondary)
                 }
                 Spacer()
                 Text(model.playerBotsReady ? "WORLD POPULATION READY" : "SETUP REQUIRED").font(.caption.bold())
                     .padding(.horizontal,10).padding(.vertical,6)
                     .background((model.playerBotsReady ? Color.green : Color.orange).opacity(0.15),in:Capsule())
+            }
+            GroupBox("Dungeon Bot Leader") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Autonomous dungeon clearing for a tank bot. The tank routes boss-to-boss, clears trash, waits for loot/rest and the other bots follow it.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    HStack {
+                        Button {
+                            model.installDungeonBotLeader()
+                        } label: {
+                            Label("Install / Update Dungeon Bot Leader", systemImage: "figure.walk.motion")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        Text(model.dungeonLeaderStatus)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                    Text("After restart: enter a dungeon with a tank bot and type .dc on. Controls: .dc pause, .dc skip, .dc status, .dc bosses, .dc off.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(6)
             }
             if !model.playerBotsSupported {
                 GroupBox("PlayerBots") { Text("Select The Burning Crusade or Wrath of the Lich King. WoWCC manages CMaNGOS PlayerBots for TBC and mod-playerbots for WotLK.").foregroundStyle(.secondary).padding(8) }
@@ -656,7 +657,8 @@ struct ContentView: View {
                     }.padding(8)
                 }
             }
-            Spacer()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 

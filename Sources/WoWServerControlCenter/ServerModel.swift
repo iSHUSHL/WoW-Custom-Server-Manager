@@ -789,6 +789,21 @@ final class ServerModel: ObservableObject {
                         }
                     }
                 }
+                // PlayerBots are WorldSessions too. Keep AzerothCore's PlayerLimit from
+                // becoming an accidental 500-session ceiling when WoWCC targets thousands.
+                if configURL.lastPathComponent == "worldserver.conf" {
+                    let limitPattern = "(?m)^\\s*#?\\s*PlayerLimit\\s*=.*$"
+                    if let limitRegex = try? NSRegularExpression(pattern: limitPattern) {
+                        let limitRange = NSRange(text.startIndex..<text.endIndex, in: text)
+                        let replacement = "PlayerLimit = 0"
+                        if limitRegex.firstMatch(in: text, range: limitRange) != nil {
+                            text = limitRegex.stringByReplacingMatches(in: text, range: limitRange, withTemplate: replacement)
+                        } else {
+                            if !text.hasSuffix("\n") { text += "\n" }
+                            text += replacement + "\n"
+                        }
+                    }
+                }
                 try text.write(to: configURL, atomically: true, encoding: .utf8)
             }
             return
@@ -875,8 +890,13 @@ final class ServerModel: ObservableObject {
         let configured: URL
         let runtime: URL
         if selectedExpansion == .wotlk {
-            let modulesDir = profileRoot.appendingPathComponent("etc/modules", isDirectory: true)
+            // AzerothCore resolves module configs from the module directory associated
+            // with the active worldserver config path. WoWCC launches worldserver with
+            // -c <profile>/configs/worldserver.conf, so keep configs/modules authoritative.
+            // We also mirror etc/modules for install layouts that use the compiled SYSCONFDIR.
+            let modulesDir = configDir.appendingPathComponent("modules", isDirectory: true)
             try fm.createDirectory(at: modulesDir, withIntermediateDirectories: true)
+            try fm.createDirectory(at: profileRoot.appendingPathComponent("etc/modules", isDirectory: true), withIntermediateDirectories: true)
             configured = configDir.appendingPathComponent("playerbots.conf")
             runtime = modulesDir.appendingPathComponent("playerbots.conf")
         } else {
@@ -893,6 +913,40 @@ final class ServerModel: ObservableObject {
             throw err("PlayerBots runtime config is missing. Run PlayerBots → Populate / Repair World once.")
         }
 
+        // Always apply the population selected in the UI before the world process starts.
+        // Previously the selector only saved UserDefaults; an older runtime config could
+        // therefore stay at 500 even when the UI showed 2,000.
+        let targetBots = min(5000, max(10, playerBotPopulation))
+        let targetAccounts = targetBots // guarantee enough account slots for every requested bot
+        func forceBotSetting(_ text: String, key: String, value: String) throws -> String {
+            let pattern = "(?m)^\\s*#?\\s*" + NSRegularExpression.escapedPattern(for: key) + "\\s*=.*$"
+            let regex = try NSRegularExpression(pattern: pattern)
+            let range = NSRange(text.startIndex..<text.endIndex, in: text)
+            let line = "\(key) = \(value)"
+            if regex.firstMatch(in: text, range: range) != nil {
+                return regex.stringByReplacingMatches(in: text, range: range, withTemplate: line)
+            }
+            return text + (text.hasSuffix("\n") ? "" : "\n") + line + "\n"
+        }
+        let botsPerInterval = targetBots
+
+        for url in [configured, runtime] where fm.fileExists(atPath: url.path) {
+            var text = try String(contentsOf: url, encoding: .utf8)
+            text = try forceBotSetting(text, key: "AiPlayerbot.Enabled", value: playerBotsEnabled ? "1" : "0")
+            text = try forceBotSetting(text, key: "AiPlayerbot.RandomBotAutologin", value: playerBotsEnabled ? "1" : "0")
+            text = try forceBotSetting(text, key: "AiPlayerbot.RandomBotLoginAtStartup", value: playerBotsEnabled ? "1" : "0")
+            text = try forceBotSetting(text, key: "AiPlayerbot.RandomBotAutoCreate", value: "1")
+            text = try forceBotSetting(text, key: "AiPlayerbot.MinRandomBots", value: "\(targetBots)")
+            text = try forceBotSetting(text, key: "AiPlayerbot.MaxRandomBots", value: "\(targetBots)")
+            // Current mod-playerbots uses RandomBotsPerInterval for population ramp-up.
+            // RandomBotsMaxLoginsPerInterval is not a current WotLK mod-playerbots setting.
+            text = try forceBotSetting(text, key: "AiPlayerbot.RandomBotAccountCount", value: "0")
+            text = try forceBotSetting(text, key: "AiPlayerbot.RandomBotsPerInterval", value: "\(botsPerInterval)")
+            text = try forceBotSetting(text, key: "AiPlayerbot.EnablePeriodicOnlineOffline", value: "0")
+            text = try forceBotSetting(text, key: "AiPlayerbot.DisabledWithoutRealPlayer", value: "0")
+            try text.write(to: url, atomically: true, encoding: .utf8)
+        }
+
         guard selectedExpansion == .wotlk else { return }
 
         let expected = "PlayerbotsDatabaseInfo = \"127.0.0.1;\(mysqlPort);wowcc;wowcc;acore_playerbots\""
@@ -901,14 +955,35 @@ final class ServerModel: ObservableObject {
         var candidates = Set<URL>()
         candidates.insert(configured)
         candidates.insert(runtime)
+        let legacyRuntime = profileRoot.appendingPathComponent("etc/modules/playerbots.conf")
+        // Keep both known AzerothCore module-config layouts synchronized. Most
+        // importantly, configs/modules is adjacent to the -c worldserver.conf path.
+        if fm.fileExists(atPath: configured.path) {
+            try fm.createDirectory(at: legacyRuntime.deletingLastPathComponent(), withIntermediateDirectories: true)
+            if !fm.fileExists(atPath: legacyRuntime.path) {
+                try fm.copyItem(at: configured, to: legacyRuntime)
+            }
+        }
+        candidates.insert(legacyRuntime)
 
         // The Playerbot fork can load module configs from different install/layout
         // directories. Repair every real playerbots.conf inside this managed profile
         // so a stale 3306 copy can never win at startup.
-        if let enumerator = fm.enumerator(at: profileRoot, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles, .skipsPackageDescendants]) {
-            for case let url as URL in enumerator where url.lastPathComponent.lowercased() == "playerbots.conf" {
-                candidates.insert(url)
+
+        // IMPORTANT: the Playerbot fork can load a different playerbots.conf than
+        // etc/modules/playerbots.conf depending on how CMake installed SYSCONFDIR.
+        // The module defaults MinRandomBots/MaxRandomBots to 500, so changing only
+        // WoWCC's managed copy can leave the *loaded* config at exactly 500 online.
+        // Apply the selected runtime settings to every playerbots.conf in this profile.
+        func forceCandidateSetting(_ text: String, key: String, value: String) throws -> String {
+            let settingPattern = "(?m)^\\s*#?\\s*" + NSRegularExpression.escapedPattern(for: key) + "\\s*=.*$"
+            let settingRegex = try NSRegularExpression(pattern: settingPattern)
+            let settingRange = NSRange(text.startIndex..<text.endIndex, in: text)
+            let line = "\(key) = \(value)"
+            if settingRegex.firstMatch(in: text, range: settingRange) != nil {
+                return settingRegex.stringByReplacingMatches(in: text, range: settingRange, withTemplate: line)
             }
+            return text + (text.hasSuffix("\n") ? "" : "\n") + line + "\n"
         }
 
         var repaired: [String] = []
@@ -921,12 +996,47 @@ final class ServerModel: ObservableObject {
                 if !text.hasSuffix("\n") { text += "\n" }
                 text += expected + "\n"
             }
+            text = try forceCandidateSetting(text, key: "AiPlayerbot.Enabled", value: playerBotsEnabled ? "1" : "0")
+            text = try forceCandidateSetting(text, key: "AiPlayerbot.RandomBotAutologin", value: playerBotsEnabled ? "1" : "0")
+            text = try forceCandidateSetting(text, key: "AiPlayerbot.RandomBotLoginAtStartup", value: playerBotsEnabled ? "1" : "0")
+            text = try forceCandidateSetting(text, key: "AiPlayerbot.MinRandomBots", value: "\(targetBots)")
+            text = try forceCandidateSetting(text, key: "AiPlayerbot.MaxRandomBots", value: "\(targetBots)")
+            text = try forceCandidateSetting(text, key: "AiPlayerbot.RandomBotsPerInterval", value: "\(botsPerInterval)")
+            text = try forceCandidateSetting(text, key: "AiPlayerbot.RandomBotUpdateInterval", value: "1")
+            text = try forceCandidateSetting(text, key: "AiPlayerbot.RandomBotInWorldWithRotationDisabled", value: "31104000")
+            text = try forceCandidateSetting(text, key: "AiPlayerbot.EnableRotation", value: "0")
+            text = try forceCandidateSetting(text, key: "AiPlayerbot.EnablePeriodicOnlineOffline", value: "0")
+            text = try forceCandidateSetting(text, key: "AiPlayerbot.DisabledWithoutRealPlayer", value: "0")
             try text.write(to: url, atomically: true, encoding: .utf8)
             repaired.append(url.path)
         }
 
         guard !repaired.isEmpty else {
             throw err("No WotLK playerbots.conf could be repaired. Run PlayerBots → Populate / Repair World once.")
+        }
+
+        // Belt-and-suspenders: worldserver.conf is the file WoWCC explicitly passes
+        // with `worldserver -c`. ConfigMgr exposes options from the primary config to
+        // modules too, so put the population-critical PlayerBots keys there as well.
+        // This avoids the module silently falling back to its built-in 500/500 defaults
+        // if its compiled module-config directory differs from the install layout.
+        let worldConf = configDir.appendingPathComponent("worldserver.conf")
+        if fm.fileExists(atPath: worldConf.path) {
+            var worldText = try String(contentsOf: worldConf, encoding: .utf8)
+            worldText = try forceCandidateSetting(worldText, key: "AiPlayerbot.Enabled", value: playerBotsEnabled ? "1" : "0")
+            worldText = try forceCandidateSetting(worldText, key: "AiPlayerbot.RandomBotAutologin", value: playerBotsEnabled ? "1" : "0")
+            worldText = try forceCandidateSetting(worldText, key: "AiPlayerbot.MinRandomBots", value: "\(targetBots)")
+            worldText = try forceCandidateSetting(worldText, key: "AiPlayerbot.MaxRandomBots", value: "\(targetBots)")
+            worldText = try forceCandidateSetting(worldText, key: "AiPlayerbot.RandomBotsPerInterval", value: "\(botsPerInterval)")
+            worldText = try forceCandidateSetting(worldText, key: "AiPlayerbot.RandomBotUpdateInterval", value: "1")
+            worldText = try forceCandidateSetting(worldText, key: "AiPlayerbot.RandomBotInWorldWithRotationDisabled", value: "31104000")
+            worldText = try forceCandidateSetting(worldText, key: "AiPlayerbot.EnableRotation", value: "0")
+            worldText = try forceCandidateSetting(worldText, key: "AiPlayerbot.RandomBotAccountPrefix", value: "\"RNDBOT\"")
+            worldText = try forceCandidateSetting(worldText, key: "AiPlayerbot.RandomBotAccountCount", value: "0")
+            worldText = try forceCandidateSetting(worldText, key: "AiPlayerbot.EnablePeriodicOnlineOffline", value: "0")
+            worldText = try forceCandidateSetting(worldText, key: "AiPlayerbot.DisabledWithoutRealPlayer", value: "0")
+            try worldText.write(to: worldConf, atomically: true, encoding: .utf8)
+            repaired.append(worldConf.path + " [primary config override]")
         }
 
         let logURL = logs.appendingPathComponent("playerbots-config.log")
@@ -938,6 +1048,31 @@ final class ServerModel: ObservableObject {
             try? handle.write(contentsOf: Data(entry.utf8))
         } else {
             try? entry.write(to: logURL, atomically: true, encoding: .utf8)
+        }
+    }
+
+    private func resetWotLKPlayerBotRuntimeEventsForPopulationChange() throws {
+        guard selectedExpansion == .wotlk, playerBotsEnabled else { return }
+        // mod-playerbots persists the effective random-bot target in
+        // acore_playerbots.playerbots_random_bots (event "bot_count").
+        // A realm that previously ran at 500 can therefore keep reporting/using
+        // that persisted event even after WoWCC writes a larger Min/Max target.
+        // The module's documented `playerbot rndbot reset` command clears this
+        // event table. Do the equivalent before an explicit World start so the
+        // module recreates bot_count from the freshly written Min/Max settings.
+        do {
+            let client = try dbClient()
+            try client.execute(database: "acore_playerbots", sql: "TRUNCATE TABLE playerbots_random_bots;")
+            // Account-type assignments are derived from MaxRandomBots at world startup.
+            // Clear stale assignments from an old 500-bot run so the module recalculates
+            // enough RNDBOT accounts for the newly selected target. No accounts or
+            // characters are deleted by this operation.
+            try? client.execute(database: "acore_playerbots", sql: "DELETE FROM playerbots_account_type;")
+            appendCatalogDiagnostic("[playerbots] Cleared persisted rndbot events/account assignments; selected target=\(playerBotPopulation).")
+        } catch {
+            // Older module schemas may not have the event table yet. Do not make
+            // World startup fail solely because there is nothing to reset.
+            appendCatalogDiagnostic("[playerbots] Runtime-event reset skipped: \(error.localizedDescription)")
         }
     }
 
@@ -1310,7 +1445,6 @@ final class ServerModel: ObservableObject {
         Task {
             do {
                 try ensureCompatibilityAlias()
-                try stopStaleServersFromOtherExpansions()
                 try claimActiveRealmLock()
                 desiredWorldRunning = true
                 try repairCMaNGOSDatabaseConfigIfNeeded()
@@ -1318,9 +1452,9 @@ final class ServerModel: ObservableObject {
                 statusMessage = "1/3 Starting managed MySQL 8.4…"
                 try await startMySQL()
                 try await configureDatabaseAccessAsync()
-                guard portOpen(Int32(mysqlPort)) else { throw err("MySQL started but port \(mysqlPort) is not listening.") }
+                guard await portOpenAsync(Int32(mysqlPort)) else { throw err("MySQL started but port \(mysqlPort) is not listening.") }
 
-                realmDatabaseReady = probeRealmDatabaseReady()
+                realmDatabaseReady = await probeRealmDatabaseReadyAsync()
                 guard realmDatabaseReady else {
                     throw err("Realm database is not ready. Run Setup / Repair Realm first and wait for REALM DATABASE READY.")
                 }
@@ -1330,16 +1464,14 @@ final class ServerModel: ObservableObject {
                 try validateClientDataForStart()
 
                 statusMessage = "2/3 Starting \(authBinaryName)…"
-                try ensureSelectedServerOwnsPort(authPort, expectedBinary: authBinaryName)
-                if !portOpen(authPort) {
+                if !(await portOpenAsync(authPort)) {
                     try startAuth()
                     try await waitForService(port: authPort, process: auth, label: authBinaryName, timeoutSeconds: 20, logName: "authserver.log")
                 }
                 authRunning = true
 
                 statusMessage = "3/3 Starting \(worldBinaryName)…"
-                try ensureSelectedServerOwnsPort(worldPort, expectedBinary: worldBinaryName)
-                if !portOpen(worldPort) {
+                if !(await portOpenAsync(worldPort)) {
                     try await ensureWotLKPlayerBotsDatabaseReady()
                     try ensurePlayerBotRuntimeConfig()
                     try startWorld()
@@ -1417,6 +1549,7 @@ final class ServerModel: ObservableObject {
                 if !portOpen(worldPort) {
                     try await ensureWotLKPlayerBotsDatabaseReady()
                     try ensurePlayerBotRuntimeConfig()
+                    try resetWotLKPlayerBotRuntimeEventsForPopulationChange()
                     try startWorld()
                     try await waitForWorldReadyPlayerBotsAware()
                 }
@@ -1506,7 +1639,7 @@ final class ServerModel: ObservableObject {
                 try await startMySQL()
                 try await configureDatabaseAccessAsync()
                 mysqlRunning = true
-                realmDatabaseReady = probeRealmDatabaseReady()
+                realmDatabaseReady = await probeRealmDatabaseReadyAsync()
                 statusMessage = "MySQL running"
             } catch {
                 statusMessage = "MySQL start failed: \(error.localizedDescription)"
@@ -1527,7 +1660,7 @@ final class ServerModel: ObservableObject {
     }
 
     func startMySQL() async throws {
-        if portOpen(Int32(mysqlPort)) {
+        if await portOpenAsync(Int32(mysqlPort)) {
             mysqlRunning = true
             return
         }
@@ -1537,17 +1670,12 @@ final class ServerModel: ObservableObject {
         let marker = datadir.appendingPathComponent("mysql")
         if !FileManager.default.fileExists(atPath: marker.path) {
             statusMessage = "Initializing local database…"
-            // mysqld --initialize can take several seconds on a fresh profile.
-            // Never wait for it on MainActor or macOS will show a beachball.
-            try await runProcessAsync(
-                mysqld,
-                ["--no-defaults", "--initialize-insecure", "--datadir=\(datadir.path)"]
-            )
+            try await runProcessAsync(mysqld, ["--no-defaults", "--initialize-insecure", "--datadir=\(datadir.path)"])
         }
         let socket = profileDBRoot.appendingPathComponent("mysql.sock").path
         try mysql.start(executable: URL(fileURLWithPath: mysqld), arguments: ["--no-defaults", "--datadir=\(datadir.path)", "--port=\(mysqlPort)", "--bind-address=127.0.0.1", "--socket=\(socket)", "--mysqlx=0"])
         for _ in 0..<30 {
-            if portOpen(Int32(mysqlPort)) {
+            if await portOpenAsync(Int32(mysqlPort)) {
                 mysqlRunning = true
                 return
             }
@@ -1556,18 +1684,6 @@ final class ServerModel: ObservableObject {
         throw err("Managed MySQL did not become ready")
     }
 
-    private func configureDatabaseAccess() throws {
-        guard let mysqlExe = locateMySQL("mysql") else { throw err("mysql client not found") }
-        let p = Process(); p.executableURL = URL(fileURLWithPath: mysqlExe)
-        p.arguments = ["--protocol=TCP", "-h", "127.0.0.1", "-P", "\(mysqlPort)", "-u", "root", "-e", "CREATE USER IF NOT EXISTS 'wowcc'@'127.0.0.1' IDENTIFIED BY 'wowcc'; CREATE USER IF NOT EXISTS 'wowcc'@'localhost' IDENTIFIED BY 'wowcc'; GRANT ALL PRIVILEGES ON *.* TO 'wowcc'@'127.0.0.1'; GRANT ALL PRIVILEGES ON *.* TO 'wowcc'@'localhost'; FLUSH PRIVILEGES;"]
-        let errPipe = Pipe(); p.standardError = errPipe; try p.run(); p.waitUntilExit()
-        if p.terminationStatus != 0 { throw err(String(data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "Unable to configure DB user") }
-    }
-
-    // Async Process bridge for Start-button work. Process.run() itself is cheap;
-    // the old waitUntilExit() calls were the problem because ServerModel is
-    // @MainActor. A termination handler lets AppKit keep servicing the window
-    // while MySQL performs initialization/configuration.
     private func runProcessAsync(_ executable: String, _ arguments: [String]) async throws {
         try await withCheckedThrowingContinuation { continuation in
             let process = Process()
@@ -1579,31 +1695,53 @@ final class ServerModel: ObservableObject {
             process.terminationHandler = { process in
                 let data = errorPipe.fileHandleForReading.readDataToEndOfFile()
                 if process.terminationStatus == 0 {
-                    continuation.resume()
+                    continuation.resume(returning: ())
                 } else {
-                    let message = String(data: data, encoding: .utf8)?
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-                    continuation.resume(throwing: NSError(
-                        domain: "WoWCC",
-                        code: Int(process.terminationStatus),
-                        userInfo: [NSLocalizedDescriptionKey: (message?.isEmpty == false ? message! : "Command failed (exit \(process.terminationStatus))")]
-                    ))
+                    let message = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    continuation.resume(throwing: NSError(domain: "WoWCC", code: Int(process.terminationStatus), userInfo: [NSLocalizedDescriptionKey: (message?.isEmpty == false ? message! : "Command failed (exit \(process.terminationStatus))")]))
                 }
             }
-            do {
-                try process.run()
-            } catch {
-                continuation.resume(throwing: error)
+            do { try process.run() } catch { continuation.resume(throwing: error) }
+        }
+    }
+
+    private func portOpenAsync(_ port: Int32) async -> Bool {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                continuation.resume(returning: Self.backgroundPortOpen(port))
             }
         }
     }
 
     private func configureDatabaseAccessAsync() async throws {
         guard let mysqlExe = locateMySQL("mysql") else { throw err("mysql client not found") }
-        try await runProcessAsync(mysqlExe, [
-            "--protocol=TCP", "-h", "127.0.0.1", "-P", "\(mysqlPort)", "-u", "root", "-e",
-            "CREATE USER IF NOT EXISTS 'wowcc'@'127.0.0.1' IDENTIFIED BY 'wowcc'; CREATE USER IF NOT EXISTS 'wowcc'@'localhost' IDENTIFIED BY 'wowcc'; GRANT ALL PRIVILEGES ON *.* TO 'wowcc'@'127.0.0.1'; GRANT ALL PRIVILEGES ON *.* TO 'wowcc'@'localhost'; FLUSH PRIVILEGES;"
-        ])
+        try await runProcessAsync(mysqlExe, ["--protocol=TCP", "-h", "127.0.0.1", "-P", "\(mysqlPort)", "-u", "root", "-e", "CREATE USER IF NOT EXISTS 'wowcc'@'127.0.0.1' IDENTIFIED BY 'wowcc'; CREATE USER IF NOT EXISTS 'wowcc'@'localhost' IDENTIFIED BY 'wowcc'; GRANT ALL PRIVILEGES ON *.* TO 'wowcc'@'127.0.0.1'; GRANT ALL PRIVILEGES ON *.* TO 'wowcc'@'localhost'; FLUSH PRIVILEGES;"])
+    }
+
+    private func probeRealmDatabaseReadyAsync() async -> Bool {
+        let expansion = selectedExpansion
+        guard let mysqlExecutable = locateMySQL("mysql") else { return false }
+        let port = mysqlPort
+        let required: [(String, String)]
+        switch expansion {
+        case .wotlk: required = [("acore_auth","account"),("acore_auth","realmlist"),("acore_characters","characters"),("acore_characters","item_instance"),("acore_characters","character_inventory"),("acore_world","item_template"),("acore_world","creature_template")]
+        case .vanilla, .tbc: required = [("realmd","account"),("realmd","realmlist"),("characters","characters"),("mangos","item_template"),("mangos","creature_template")]
+        case .cataclysm, .mop: required = [("auth","account"),("auth","realmlist"),("characters","characters"),("world","item_template"),("world","creature_template")]
+        default: return false
+        }
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                continuation.resume(returning: Self.backgroundRealmDatabaseReady(mysqlExecutable: mysqlExecutable, port: port, requiredTables: required))
+            }
+        }
+    }
+
+    private func configureDatabaseAccess() throws {
+        guard let mysqlExe = locateMySQL("mysql") else { throw err("mysql client not found") }
+        let p = Process(); p.executableURL = URL(fileURLWithPath: mysqlExe)
+        p.arguments = ["--protocol=TCP", "-h", "127.0.0.1", "-P", "\(mysqlPort)", "-u", "root", "-e", "CREATE USER IF NOT EXISTS 'wowcc'@'127.0.0.1' IDENTIFIED BY 'wowcc'; CREATE USER IF NOT EXISTS 'wowcc'@'localhost' IDENTIFIED BY 'wowcc'; GRANT ALL PRIVILEGES ON *.* TO 'wowcc'@'127.0.0.1'; GRANT ALL PRIVILEGES ON *.* TO 'wowcc'@'localhost'; FLUSH PRIVILEGES;"]
+        let errPipe = Pipe(); p.standardError = errPipe; try p.run(); p.waitUntilExit()
+        if p.terminationStatus != 0 { throw err(String(data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "Unable to configure DB user") }
     }
 
     func startAuth() throws {
@@ -2595,6 +2733,11 @@ final class ServerModel: ObservableObject {
         case .raidSet:
             clauses.append("itemset > 0")
             clauses.append("InventoryType > 0")
+        case .transmog:
+            // Complete wearable appearance pool: every armor piece and weapon
+            // in the selected expansion DB, including tier/set pieces.
+            clauses.append("class IN (2,4)")
+            clauses.append("InventoryType > 0")
         case .weapon:
             clauses.append("class = 2")
             clauses.append("InventoryType > 0")
@@ -3339,15 +3482,30 @@ final class ServerModel: ObservableObject {
         gmGearTerminalBuildStatus = "Building Gear Menu module into WotLK worldserver…"
         appendCatalogDiagnostic("[gear-terminal] Build started. See wowcc-gear-terminal-build.log in Logs.")
 
-        let scriptPath = script.path
-        Task { @MainActor in
+        Task.detached { [weak self] in
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/bin/bash")
+            p.arguments = [script.path]
             do {
-                try await runProcessAsync("/bin/bash", [scriptPath])
-                gmGearTerminalBuildStatus = "Module built successfully. Install/Repair GM Island, then restart World Server."
-                appendCatalogDiagnostic("[gear-terminal] COMPLETE.")
+                try p.run()
+                p.waitUntilExit()
+                let code = p.terminationStatus
+                await MainActor.run {
+                    guard let self else { return }
+                    if code == 0 {
+                        self.gmGearTerminalBuildStatus = "Module built successfully. Install/Repair GM Island, then restart World Server."
+                        self.appendCatalogDiagnostic("[gear-terminal] COMPLETE.")
+                    } else {
+                        self.gmGearTerminalBuildStatus = "Module build failed (exit \(code)). Open Logs → wowcc-gear-terminal-build.log."
+                        self.appendCatalogDiagnostic("[gear-terminal] FAILED exit=\(code).")
+                    }
+                }
             } catch {
-                gmGearTerminalBuildStatus = "Module build failed: \(error.localizedDescription). Open Logs → wowcc-gear-terminal-build.log."
-                appendCatalogDiagnostic("[gear-terminal] ERROR: \(error.localizedDescription)")
+                await MainActor.run {
+                    guard let self else { return }
+                    self.gmGearTerminalBuildStatus = "Could not start module build: \(error.localizedDescription)"
+                    self.appendCatalogDiagnostic("[gear-terminal] ERROR: \(error.localizedDescription)")
+                }
             }
         }
     }

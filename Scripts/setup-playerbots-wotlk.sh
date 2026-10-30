@@ -12,7 +12,7 @@ PR="$ROOT/runtime/profiles/$PROFILE"
 SRC="$ROOT/sources/$PROFILE/core"
 MOD="$SRC/modules/mod-playerbots"
 LOG="$PR/logs/playerbots-setup.log"
-mkdir -p "$PR/configs" "$PR/etc/modules" "$PR/logs"
+mkdir -p "$PR/configs" "$PR/configs/modules" "$PR/etc/modules" "$PR/logs"
 exec > >(tee -a "$LOG") 2>&1
 
 [[ "$PROFILE" == "wotlk" ]] || { echo "ERROR: WotLK PlayerBots setup received unsupported profile: $PROFILE"; exit 2; }
@@ -33,7 +33,8 @@ M=("$MYSQL" --protocol=TCP -h 127.0.0.1 -P "$PORT" -u wowcc)
 "${M[@]}" -e 'CREATE DATABASE IF NOT EXISTS acore_playerbots CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;'
 
 CONF="$PR/configs/playerbots.conf"
-RUNTIME_CONF="$PR/etc/modules/playerbots.conf"
+RUNTIME_CONF="$PR/configs/modules/playerbots.conf"
+LEGACY_RUNTIME_CONF="$PR/etc/modules/playerbots.conf"
 if [[ ! -f "$CONF" ]]; then
   DIST="$(find "$PR" "$ROOT/sources/$PROFILE/build" "$MOD" -type f -name 'playerbots.conf.dist' 2>/dev/null | head -n1 || true)"
   [[ -n "$DIST" ]] || { echo "ERROR: playerbots.conf.dist not found. Click Rebuild Core + PlayerBots first."; exit 9; }
@@ -56,10 +57,14 @@ def setv(key,value,quote=False):
         text += line+'\n'
 
 # For 5,000 online bots we create enough bot accounts while keeping default conservative.
-accounts=max(50,(population+8)//9)
+# Let current mod-playerbots calculate the exact RNDbot account requirement.
+# It also reserves AddClassAccountPoolSize (default 50), so 3000 bots normally means ~350 accounts.
+accounts=0
 setv('PlayerbotsDatabaseInfo',f'127.0.0.1;{port};wowcc;wowcc;acore_playerbots',True)
 setv('AiPlayerbot.Enabled',enabled)
 setv('AiPlayerbot.RandomBotAutologin',enabled)
+setv('AiPlayerbot.RandomBotLoginAtStartup',enabled)
+setv('AiPlayerbot.RandomBotAutoCreate',1)
 setv('AiPlayerbot.MinRandomBots',population)
 setv('AiPlayerbot.MaxRandomBots',population)
 setv('AiPlayerbot.RandomBotAccountPrefix','RNDBOT',True)
@@ -74,15 +79,25 @@ setv('AiPlayerbot.DeleteRandomBotAccounts',0)
 # Stable fixed target population rather than constant count churn.
 setv('AiPlayerbot.RandomBotCountChangeMinInterval',31536000)
 setv('AiPlayerbot.RandomBotCountChangeMaxInterval',31536000)
+setv('AiPlayerbot.EnableRotation',0)
+setv('AiPlayerbot.RandomBotInWorldWithRotationDisabled',31104000)
+setv('AiPlayerbot.EnablePeriodicOnlineOffline',0)
+setv('AiPlayerbot.DisabledWithoutRealPlayer',0)
 # The current module expresses update interval in seconds. Use a gentler value at high populations.
-interval={'safe':60,'normal':40,'fast':20,'maximum':10}.get(speed,20)
+interval=1
 setv('AiPlayerbot.RandomBotUpdateInterval',interval)
+# Current mod-playerbots uses RandomBotsPerInterval to control how many bots can be
+# added/processed per population cycle. The old RandomBotsMaxLoginsPerInterval key
+# is ignored by current WotLK mod-playerbots.
+bots_per_interval=population
+setv('AiPlayerbot.RandomBotsPerInterval',bots_per_interval)
 path.write_text(text)
 print(f'[playerbots:wotlk] Configured target={population}, accounts={accounts}, enabled={enabled}, BG={bgs}, quests={quests}, update={interval}s')
 PY
 
 cp -f "$CONF" "$RUNTIME_CONF"
-echo "[playerbots:wotlk] Runtime config synced: $RUNTIME_CONF"
+cp -f "$CONF" "$LEGACY_RUNTIME_CONF"
+echo "[playerbots:wotlk] Runtime config synced: $RUNTIME_CONF and $LEGACY_RUNTIME_CONF"
 
 # Track every imported module SQL file to make setup repeatable/non-destructive.
 "${M[@]}" acore_characters -e "CREATE TABLE IF NOT EXISTS wowcc_playerbots_migrations (scope VARCHAR(32) NOT NULL, filename VARCHAR(255) NOT NULL, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(scope,filename));" >/dev/null

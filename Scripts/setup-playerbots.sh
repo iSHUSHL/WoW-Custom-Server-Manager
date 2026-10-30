@@ -55,7 +55,7 @@ def setv(key,value):
     else:
         if text and not text.endswith('\n'): text+='\n'
         text+=line+'\n'
-accounts=max(50,(population+8)//9)
+accounts=max(50,population)
 values={
 'AiPlayerbot.Enabled':enabled,'AiPlayerbot.RandomBotAutologin':enabled,'AiPlayerbot.RandomBotLoginAtStartup':enabled,
 'AiPlayerbot.RandomBotAutoCreate':1,'AiPlayerbot.MinRandomBots':population,'AiPlayerbot.MaxRandomBots':population,

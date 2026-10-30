@@ -104,6 +104,49 @@ if [[ "$PROFILE" == "wotlk" ]]; then
   playerbots_tree_valid || fail "WotLK mod-playerbots clone is incomplete after clean clone: $WOTLK_BOTS_DIR"
   log "WotLK PlayerBots source ready (Playerbot fork + mod-playerbots)."
 
+  # WoWCC WotLK feature: official AzerothCore transmogrification module.
+  # It is compiled into the same worldserver build and uses the module's
+  # Legion-style appearance collection. The Complete Item Collection in WoWCC
+  # remains the GM wardrobe for tier sets, armor and weapons.
+  TRANSMOG_DIR="$SRC_ROOT/modules/mod-transmog"
+  TRANSMOG_REPO="https://github.com/azerothcore/mod-transmog.git"
+  log "Preparing official AzerothCore Transmog module…"
+  if [[ -d "$TRANSMOG_DIR/.git" ]]; then
+    git -C "$TRANSMOG_DIR" fetch --depth 1 origin master
+    git -C "$TRANSMOG_DIR" reset --hard origin/master
+  else
+    rm -rf "$TRANSMOG_DIR"
+    git clone --depth 1 --single-branch --branch master "$TRANSMOG_REPO" "$TRANSMOG_DIR"
+  fi
+  [[ -f "$TRANSMOG_DIR/README.md" ]] || fail "Transmog module clone is incomplete: $TRANSMOG_DIR"
+  [[ -f "$TRANSMOG_DIR/conf/transmog.conf.dist" ]] || fail "Transmog config template is missing: $TRANSMOG_DIR/conf/transmog.conf.dist"
+
+  # WoWCC private-realm default: every existing account owns the complete
+  # WotLK armor/weapon appearance catalogue. Collections are account-wide,
+  # so every current and future character on those accounts inherits it.
+  mkdir -p "$TRANSMOG_DIR/data/sql/db-characters"
+  cat > "$TRANSMOG_DIR/data/sql/db-characters/wowcc_full_collection.sql" <<'SQLWOWCCTRANSMOG'
+CREATE TABLE IF NOT EXISTS `custom_unlocked_appearances` (
+  `account_id` int(10) unsigned NOT NULL,
+  `item_template_id` mediumint(8) unsigned NOT NULL DEFAULT '0',
+  PRIMARY KEY (`account_id`,`item_template_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+INSERT IGNORE INTO `custom_unlocked_appearances` (`account_id`,`item_template_id`)
+SELECT a.`id`, i.`entry`
+FROM `acore_auth`.`account` a
+CROSS JOIN `acore_world`.`item_template` i
+WHERE i.`class` IN (2,4)
+  AND i.`InventoryType` > 0
+  AND i.`Quality` >= 1;
+SQLWOWCCTRANSMOG
+  log "Transmog source ready — collection, saved sets and portable transmog enabled."
+
+  # Prevent GameEventMgr::RunSmartAIScripts from invalidating its creature-map
+  # iterator when a SmartAI event respawns/removes the current creature.
+  log "Applying WotLK GameEvent SmartAI iterator-safety crash patch…"
+  python3 "$(cd "$(dirname "$0")" && pwd)/apply-wotlk-gameevent-crash-fix.py" "$SRC_ROOT"
+
   # WoWCC custom realm feature: mounted flying in Eastern Kingdoms + Kalimdor.
   # The 3.3.5 client has its own AreaTable restriction, handled by
   # enable-wotlk-flying-everywhere.py during Prepare Client Data.
@@ -736,12 +779,74 @@ done
 if [[ "$PROFILE" == "wotlk" ]]; then
   BOT_DIST="$(find "$PROFILE_ROOT" "$BUILD" "$SRC_ROOT/modules/mod-playerbots" -type f -name 'playerbots.conf.dist' 2>/dev/null | head -n1 || true)"
   if [[ -n "$BOT_DIST" ]]; then
-    mkdir -p "$PROFILE_ROOT/configs" "$PROFILE_ROOT/etc/modules"
+    mkdir -p "$PROFILE_ROOT/configs" "$PROFILE_ROOT/configs/modules" "$PROFILE_ROOT/etc/modules"
     [[ -f "$PROFILE_ROOT/configs/playerbots.conf" ]] || cp -f "$BOT_DIST" "$PROFILE_ROOT/configs/playerbots.conf"
+    cp -f "$PROFILE_ROOT/configs/playerbots.conf" "$PROFILE_ROOT/configs/modules/playerbots.conf"
     cp -f "$PROFILE_ROOT/configs/playerbots.conf" "$PROFILE_ROOT/etc/modules/playerbots.conf"
     log "Installed WotLK playerbots.conf; use the PlayerBots page to tune population."
   fi
   [[ -f "$PROFILE_ROOT/configs/playerbots.conf" ]] || fail "WotLK PlayerBots built but playerbots.conf was not found after install"
+
+  # Install an unrestricted GM-friendly transmog configuration. Keep a copy in
+  # every config location used by current AzerothCore/module loaders.
+  TRANSMOG_DIST="$(find "$PROFILE_ROOT" "$BUILD" "$SRC_ROOT/modules/mod-transmog" -type f -name 'transmog.conf.dist' 2>/dev/null | head -n1 || true)"
+  [[ -n "$TRANSMOG_DIST" ]] || fail "WotLK Transmog built but transmog.conf.dist was not found after install"
+  mkdir -p "$PROFILE_ROOT/configs" "$PROFILE_ROOT/configs/modules" "$PROFILE_ROOT/etc/modules"
+  TRANSMOG_CONF="$PROFILE_ROOT/configs/transmog.conf"
+  cp -f "$TRANSMOG_DIST" "$TRANSMOG_CONF"
+  python3 - "$TRANSMOG_CONF" <<'PYTRANSMOG'
+from pathlib import Path
+import re, sys
+p=Path(sys.argv[1]); s=p.read_text(errors='ignore')
+def setv(k,v):
+    global s
+    rx=re.compile(rf'^[ \t]*#?[ \t]*{re.escape(k)}[ \t]*=.*$', re.M)
+    line=f'{k} = {v}'
+    s=rx.sub(line,s,count=1) if rx.search(s) else s.rstrip()+"\n"+line+"\n"
+for k,v in {
+    'Transmogrification.Enable':'1',
+    'Transmogrification.UseCollectionSystem':'1',
+    'Transmogrification.UseVendorInterface':'1',
+    'Transmogrification.AllowHiddenTransmog':'1',
+    'Transmogrification.HiddenTransmogIsFree':'1',
+    'Transmogrification.TrackUnusableItems':'1',
+    'Transmogrification.RetroActiveAppearances':'1',
+    'Transmogrification.EnablePortable':'1',
+    'Transmogrification.EnableSortByQualityAndName':'1',
+    'Transmogrification.EnableSets':'1',
+    'Transmogrification.MaxSets':'25',
+    'Transmogrification.ScaledCostModifier':'0',
+    'Transmogrification.CopperCost':'0',
+    'Transmogrification.SetCostModifier':'0',
+    'Transmogrification.SetCopperCost':'0',
+    'Transmogrification.AllowMixedArmorTypes':'1',
+    'Transmogrification.AllowMixedOffhandArmorTypes':'1',
+    'Transmogrification.AllowMixedWeaponTypes':'2',
+    'Transmogrification.AllowMixedWeaponHandedness':'1',
+    'Transmogrification.AllowPoor':'1',
+    'Transmogrification.AllowCommon':'1',
+    'Transmogrification.AllowUncommon':'1',
+    'Transmogrification.AllowRare':'1',
+    'Transmogrification.AllowEpic':'1',
+    'Transmogrification.AllowLegendary':'1',
+    'Transmogrification.AllowArtifact':'1',
+    'Transmogrification.AllowHeirloom':'1',
+    'Transmogrification.AllowLowerTiers':'1',
+    'Transmogrification.AllowFishingPoles':'1',
+    'Transmogrification.IgnoreReqRace':'1',
+    'Transmogrification.IgnoreReqClass':'1',
+    'Transmogrification.IgnoreReqSkill':'1',
+    'Transmogrification.IgnoreReqSpell':'1',
+    'Transmogrification.IgnoreReqLevel':'1',
+    'Transmogrification.IgnoreReqEvent':'1',
+    'Transmogrification.IgnoreReqStats':'1',
+}.items(): setv(k,v)
+p.write_text(s)
+PYTRANSMOG
+  cp -f "$TRANSMOG_CONF" "$PROFILE_ROOT/configs/modules/transmog.conf"
+  cp -f "$TRANSMOG_CONF" "$PROFILE_ROOT/etc/modules/transmog.conf"
+  log "Installed Transmog: ON for all characters + account-wide full appearance collection + unrestricted armor/weapons + 25 saved sets + zero cost."
+  log "Spawn the optional Transmog NPC in-game with: .npc add 190010"
 fi
 
 if [[ "$PROFILE" == "tbc" ]]; then
